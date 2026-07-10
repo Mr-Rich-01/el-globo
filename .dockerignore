@@ -1,0 +1,10 @@
+# Contexto de build = raiz do repo; manter o contexto mínimo
+**/node_modules
+**/.next
+**/.git
+**/.env
+**/.env.*
+!**/.env.example
+**/npm-debug.log
+docker-compose.yml
+**/*.md

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "el-globo-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "el-globo"],
+      "port": 3210,
+      "autoPort": true
+    }
+  ]
+}

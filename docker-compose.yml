@@ -1,0 +1,88 @@
+# ============================================================
+# EL GLOBO — Produção (VPS Hostinger KVM 2, 8GB RAM partilhados)
+# Espelhado na infraestrutura existente (farmacia/ginasio/merciarias):
+#   - Traefik global 'traefik-eolu' na rede externa 'proxy' (80/443)
+#   - Cloudflare Proxied (nuvem laranja) em elglobo.rssystems.tech
+# Requer .env na raiz com: DB_PASSWORD, JWT_SECRET
+# ============================================================
+
+name: elglobo
+
+services:
+  elglobo-db:
+    image: postgres:16-alpine
+    container_name: elglobo-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: elglobo
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: elglobodb
+    # Tuning de memória para VPS partilhado — mesmo padrão da farmácia
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=20"]
+    volumes:
+      - elglobo_postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elglobo -d elglobodb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Sem 'ports': a base fica isolada na rede interna
+    networks:
+      - elglobo_internal
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  elglobo-app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: elglobo-app:latest
+    container_name: elglobo-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://elglobo:${DB_PASSWORD}@elglobo-db:5432/elglobodb
+      JWT_SECRET: ${JWT_SECRET}
+      APP_URL: ${APP_URL:-https://elglobo.rssystems.tech}
+    volumes:
+      # Fotos WebP dos produtos persistem entre deploys
+      - elglobo_uploads:/app/public/uploads/produtos
+    depends_on:
+      elglobo-db:
+        condition: service_healthy
+    networks:
+      - elglobo_internal
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.elglobo.rule=Host(`elglobo.rssystems.tech`)
+      - traefik.http.routers.elglobo.entrypoints=websecure
+      - traefik.http.routers.elglobo.tls=true
+      - traefik.http.routers.elglobo.tls.certresolver=letsencrypt
+      - traefik.http.services.elglobo.loadbalancer.server.port=3000
+      # Middleware para evitar loops de SSL infinito com o Cloudflare Proxied
+      - traefik.http.middlewares.elglobo-headers.headers.customrequestheaders.X-Forwarded-Proto=https
+      - traefik.http.routers.elglobo.middlewares=elglobo-headers
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  elglobo_postgres_data:
+    driver: local
+  elglobo_uploads:
+    driver: local
+
+networks:
+  elglobo_internal:
+    driver: bridge
+  proxy:
+    external: true
