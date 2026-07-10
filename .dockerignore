@@ -8,3 +8,5 @@
 **/npm-debug.log
 docker-compose.yml
 **/*.md
+# Fotos locais de dev não entram na imagem (produção usa o volume elglobo_uploads)
+el-globo/public/uploads/produtos/*

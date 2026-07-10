@@ -1,0 +1,547 @@
+// ============================================================
+// EL GLOBO — Prisma Schema
+// Sistema de Gestão Integrado: Restaurante + Bottlestore + Piscina
+// Stock e preços são geridos POR CANAL (StockCanal) — cada gestor
+// vê apenas o seu canal; o Produto é o catálogo partilhado.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Role {
+  ADMIN
+  GERENTE
+  EMPREGADO_MESA
+  OPERADOR_BOTTLESTORE
+  COZINHEIRO
+}
+
+enum CanalVenda {
+  RESTAURANTE
+  BOTTLESTORE
+  PISCINA
+}
+
+enum EstadoMesa {
+  LIVRE
+  OCUPADA
+  CONTA_PEDIDA
+  RESERVADA
+}
+
+enum EstadoPedido {
+  PENDENTE
+  EM_PREPARACAO
+  PARCIALMENTE_PRONTO // Uma secção (Cozinha OU Bar) terminou; a outra não
+  PRONTO
+  ENTREGUE
+  CANCELADO
+}
+
+// Secção física que prepara o item: comida → Cozinha (KDS),
+// bebidas/tabaco → Bar (BDS). Derivado do TipoCategoria do produto.
+enum DestinoPreparo {
+  COZINHA
+  BAR
+}
+
+enum EstadoAba {
+  ABERTA
+  FECHADA
+  CANCELADA
+}
+
+enum MetodoPagamento {
+  DINHEIRO
+  CARTAO
+  MOBILE_MONEY
+  MISTO
+  CREDITO
+}
+
+enum EstadoVenda {
+  PENDENTE
+  PAGA
+  CANCELADA
+  REEMBOLSADA
+}
+
+enum UnidadeMedida {
+  UNIDADE     // Garrafas, latas, etc.
+  LITRO       // Bebidas a granel
+  MILILITRO   // Doses de bar
+  KG          // Comida por peso
+  GRAMA       // Ingredientes
+  PORCAO      // Porções de comida
+}
+
+enum TipoCategoria {
+  BEBIDA_ALCOOLICA
+  BEBIDA_NAO_ALCOOLICA
+  COMIDA
+  TABACO
+  SNACK
+  OUTRO
+}
+
+enum EstadoSessaoCaixa {
+  ABERTA
+  FECHADA
+}
+
+// Divisão de conta (split bill)
+enum TipoDivisao {
+  IGUAL     // Total dividido em N partes iguais
+  POR_ITEM  // Itens atribuídos a cada pessoa
+}
+
+// ============================================================
+// MÓDULO: UTILIZADORES E AUTENTICAÇÃO
+// ============================================================
+
+model User {
+  id        String   @id @default(cuid())
+  nome      String
+  email     String   @unique
+  senha     String   // bcrypt hash
+  role      Role     @default(EMPREGADO_MESA)
+  // Canal a que o utilizador pertence. null = global (ADMIN / dono).
+  // GERENTE e operadores devem ter canal definido — é o que isola
+  // os painéis do gestor do Restaurante e da Bottlestore.
+  canal     CanalVenda?
+  ativo     Boolean  @default(true)
+  criadoEm DateTime @default(now()) @map("criado_em")
+  atualizadoEm DateTime @updatedAt @map("atualizado_em")
+
+  // Relações
+  pedidos          Pedido[]
+  pedidosComoGarcom Pedido[] @relation("PedidoGarcom")
+  vendasCriadas    Venda[]
+  quebras          Quebra[]
+  sessoesCaixa     SessaoCaixa[]
+  movimentacoes    MovimentacaoStock[]
+
+  @@map("users")
+}
+
+// ============================================================
+// MÓDULO: PRODUTOS E STOCK
+// ============================================================
+
+model Categoria {
+  id        String        @id @default(cuid())
+  nome      String
+  tipo      TipoCategoria
+  icone     String?       // Nome do ícone lucide
+  cor       String?       // Cor hex para UI
+  ordem     Int           @default(0)
+  ativo     Boolean       @default(true)
+
+  // Hierarquia Pai → Subcategorias.
+  // Ex: "Comidas" é pai de "Entradas", "Pratos Principais", "Aperitivos".
+  // Um produto pode apontar para o pai (genérico) ou para uma subcategoria;
+  // a UI (POS/Tablet/Cardápio) só mostra as subcategorias depois de o
+  // grupo pai ser selecionado (dropdowns/chips dependentes).
+  parentCategoryId String?     @map("parent_category_id")
+  parent           Categoria?  @relation("CategoriaHierarquia", fields: [parentCategoryId], references: [id])
+  subcategorias    Categoria[] @relation("CategoriaHierarquia")
+
+  produtos  Produto[]
+
+  @@index([parentCategoryId])
+  @@map("categorias")
+}
+
+model Produto {
+  id              String        @id @default(cuid())
+  nome            String
+  descricao       String?
+  codigoBarras    String?       @unique @map("codigo_barras")
+  sku             String?       @unique
+  categoriaId     String        @map("categoria_id")
+  categoria       Categoria     @relation(fields: [categoriaId], references: [id])
+
+  unidadeMedida   UnidadeMedida @map("unidade_medida")
+
+  // Hierarquia Caixa → Unidade.
+  // Ex: "Cerveja 2M Caixa 24x" é parent de "Cerveja 2M Garrafa"
+  // com fatorConversao = 24. Permite auto-unboxing na venda.
+  parentProductId String?       @map("parent_product_id")
+  parent          Produto?      @relation("CaixaUnidade", fields: [parentProductId], references: [id])
+  filhos          Produto[]     @relation("CaixaUnidade")
+  fatorConversao  Int?          @map("fator_conversao")
+
+  ativo           Boolean       @default(true)
+  // Ingrediente de preparação (frango, cebola, …): stock controlado por
+  // canal como qualquer produto, mas NUNCA aparece nas listagens de venda
+  // (POS, comanda, tablet) — só no modo gestão e nas fichas técnicas.
+  isIngrediente   Boolean       @default(false) @map("is_ingrediente")
+  // Foto do produto para o cardápio digital/POS — WebP ≤400×400 gerado
+  // pela API de upload (sharp), guardado em public/uploads/produtos.
+  imagemUrl       String?       @map("imagem_url")
+  criadoEm       DateTime      @default(now()) @map("criado_em")
+  atualizadoEm   DateTime      @updatedAt @map("atualizado_em")
+
+  // Relações
+  stockCanais       StockCanal[]
+  fichasTecnicas    FichaTecnicaItem[]
+  fichasProduzidas  FichaTecnica[]     @relation("ProdutoFichaTecnica")
+  itensPedido       ItemPedido[]
+  itensVenda        ItemVenda[]
+  movimentacoes     MovimentacaoStock[]
+  quebras           Quebra[]
+
+  @@index([codigoBarras])
+  @@index([categoriaId])
+  @@index([nome])
+  @@map("produtos")
+}
+
+// Stock e preço POR CANAL — a existência de uma linha ativa define
+// a disponibilidade do produto nesse canal. O restaurante pode vender
+// mais caro que a bottlestore sem interferência.
+model StockCanal {
+  id          String     @id @default(cuid())
+  produtoId   String     @map("produto_id")
+  produto     Produto    @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  canal       CanalVenda
+
+  precoVenda  Decimal    @db.Decimal(10, 2) @map("preco_venda")
+  precoCusto  Decimal?   @db.Decimal(10, 2) @map("preco_custo")
+  stockAtual  Decimal    @db.Decimal(10, 3) @default(0) @map("stock_atual")
+  stockMinimo Decimal    @db.Decimal(10, 3) @default(0) @map("stock_minimo")
+  ativo       Boolean    @default(true)
+
+  @@unique([produtoId, canal])
+  @@index([canal, ativo])
+  @@map("stock_canal")
+}
+
+// Ficha Técnica / Receita — para consumo no restaurante/bar
+// Ex: "Vodka Tónica" = 50ml Vodka + 150ml Água Tónica
+model FichaTecnica {
+  id          String   @id @default(cuid())
+  nome        String
+  descricao   String?
+
+  // Produto final resultante (opcional — para controlo de custo)
+  produtoId   String?  @map("produto_id")
+  produto     Produto? @relation("ProdutoFichaTecnica", fields: [produtoId], references: [id])
+
+  precoVenda  Decimal  @db.Decimal(10, 2) @map("preco_venda")
+  ativo       Boolean  @default(true)
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  ingredientes  FichaTecnicaItem[]
+  itensPedido   ItemPedido[]
+
+  @@map("fichas_tecnicas")
+}
+
+model FichaTecnicaItem {
+  id             String       @id @default(cuid())
+  fichaTecnicaId String       @map("ficha_tecnica_id")
+  fichaTecnica   FichaTecnica @relation(fields: [fichaTecnicaId], references: [id], onDelete: Cascade)
+  produtoId      String       @map("produto_id")
+  produto        Produto      @relation(fields: [produtoId], references: [id])
+  quantidade     Decimal      @db.Decimal(10, 4) // Ex: 0.05 = 50ml (em Litros)
+  unidade        UnidadeMedida
+
+  @@map("fichas_tecnicas_itens")
+}
+
+// Registo de todas as movimentações de stock
+model MovimentacaoStock {
+  id          String   @id @default(cuid())
+  produtoId   String   @map("produto_id")
+  produto     Produto  @relation(fields: [produtoId], references: [id])
+  canal       CanalVenda? // Canal de onde saiu/entrou o stock
+  tipo        String   // ENTRADA_COMPRA, SAIDA_VENDA, SAIDA_QUEBRA, AJUSTE, INVENTARIO, TRANSFERENCIA
+  quantidade  Decimal  @db.Decimal(10, 3)
+  stockAntes  Decimal  @db.Decimal(10, 3) @map("stock_antes")
+  stockDepois Decimal  @db.Decimal(10, 3) @map("stock_depois")
+  referencia  String?  // ID da venda/pedido/quebra origem
+  notas       String?
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id])
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  @@index([produtoId])
+  @@index([canal])
+  @@index([criadoEm])
+  @@map("movimentacoes_stock")
+}
+
+model Quebra {
+  id          String   @id @default(cuid())
+  produtoId   String   @map("produto_id")
+  produto     Produto  @relation(fields: [produtoId], references: [id])
+  // Canal onde a quebra ocorreu — permite o scoping por gestor.
+  // Nullable apenas por compatibilidade com linhas antigas.
+  canal       CanalVenda?
+  quantidade  Decimal  @db.Decimal(10, 3)
+  motivo      String
+  notas       String?
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id])
+  criadoEm   DateTime @default(now()) @map("criado_em")
+
+  @@map("quebras")
+}
+
+// ============================================================
+// MÓDULO: RESTAURANTE — MESAS
+// ============================================================
+
+model Mesa {
+  id       String     @id @default(cuid())
+  numero   Int        @unique
+  nome     String?    // Ex: "Mesa VIP 1"
+  zona     String?    // "Interior", "Esplanada", "Varanda"
+  estado   EstadoMesa @default(LIVRE)
+  lugares  Int        @default(4)
+  posX     Int?       // Posição X no mapa visual (%)
+  posY     Int?       // Posição Y no mapa visual (%)
+  ativo    Boolean    @default(true)
+
+  pedidos  Pedido[]
+  vendas   Venda[]
+
+  @@map("mesas")
+}
+
+// ============================================================
+// MÓDULO: PEDIDOS (Restaurante + Piscina)
+// ============================================================
+
+model Pedido {
+  id           String       @id @default(cuid())
+  numero       Int          @default(autoincrement()) // Número sequencial legível
+  canal        CanalVenda
+
+  // Restaurante
+  mesaId       String?      @map("mesa_id")
+  mesa         Mesa?        @relation(fields: [mesaId], references: [id])
+
+  // Piscina
+  abaId        String?      @map("aba_id")
+  aba          Aba?         @relation(fields: [abaId], references: [id])
+
+  // Pedido volante (sem mesa nem aba): cliente de pé / balcão.
+  // O garçom responsável e uma referência livre identificam o pedido.
+  garconId            String? @map("garcon_id")
+  garcom              User?   @relation("PedidoGarcom", fields: [garconId], references: [id])
+  identificadorCliente String? @map("identificador_cliente") // Ex: "Balcão — João"
+
+  userId       String       @map("user_id")
+  user         User         @relation(fields: [userId], references: [id])
+
+  // Venda que faturou este pedido — null = por faturar. É a guarda
+  // contra dupla faturação (um pedido ENTREGUE pode ainda não estar pago).
+  vendaId      String?      @map("venda_id")
+  venda        Venda?       @relation("PedidoVenda", fields: [vendaId], references: [id])
+
+  estado       EstadoPedido @default(PENDENTE)
+  notas        String?      // Notas gerais do pedido
+
+  // Timestamps do fluxo KDS (métricas de tempo de cozinha)
+  prontoEm    DateTime?    @map("pronto_em")
+  entregueEm  DateTime?    @map("entregue_em")
+
+  criadoEm    DateTime     @default(now()) @map("criado_em")
+  atualizadoEm DateTime    @updatedAt @map("atualizado_em")
+
+  itens        ItemPedido[]
+
+  @@index([canal])
+  @@index([mesaId])
+  @@index([abaId])
+  @@index([estado])
+  @@index([criadoEm])
+  @@map("pedidos")
+}
+
+model ItemPedido {
+  id              String        @id @default(cuid())
+  pedidoId        String        @map("pedido_id")
+  pedido          Pedido        @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+
+  // Produto direto OU ficha técnica
+  produtoId       String?       @map("produto_id")
+  produto         Produto?      @relation(fields: [produtoId], references: [id])
+  fichaTecnicaId  String?       @map("ficha_tecnica_id")
+  fichaTecnica    FichaTecnica? @relation(fields: [fichaTecnicaId], references: [id])
+
+  quantidade      Int
+  precoUnitario   Decimal       @db.Decimal(10, 2) @map("preco_unitario")
+  // Snapshot do precoCusto do StockCanal no momento da dedução de stock —
+  // o checkout copia-o para ItemVenda para a margem real dos relatórios.
+  custoUnitario   Decimal?      @db.Decimal(10, 2) @map("custo_unitario")
+  notas           String?       // Notas do item (ex: "sem gelo", "bem passado")
+  estadoKDS       EstadoPedido  @default(PENDENTE) @map("estado_kds")
+  // Onde o item é preparado — decide se aparece no KDS (Cozinha)
+  // ou no BDS (Bar). Calculado no backend pela categoria do produto.
+  destino         DestinoPreparo @default(COZINHA)
+
+  criadoEm       DateTime      @default(now()) @map("criado_em")
+  atualizadoEm   DateTime      @updatedAt @map("atualizado_em")
+
+  @@index([pedidoId])
+  @@index([estadoKDS])
+  @@index([destino, estadoKDS])
+  @@map("itens_pedido")
+}
+
+// ============================================================
+// MÓDULO: PISCINA — ABAS (Customer Tabs)
+// ============================================================
+
+model Aba {
+  id              String    @id @default(cuid())
+  identificador   String    // Nº Pulseira, Nome, Nº Espreguiçadeira
+  nomeCliente     String?   @map("nome_cliente")
+  telefone        String?
+  estado          EstadoAba @default(ABERTA)
+  notas           String?
+
+  abertaEm       DateTime  @default(now()) @map("aberta_em")
+  fechadaEm      DateTime? @map("fechada_em")
+
+  pedidos         Pedido[]
+  venda           Venda?
+
+  @@index([estado])
+  @@index([identificador])
+  @@map("abas")
+}
+
+// ============================================================
+// MÓDULO: VENDAS / FATURAÇÃO
+// ============================================================
+
+model Venda {
+  id              String          @id @default(cuid())
+  numero          Int             @default(autoincrement()) // Nº de fatura
+  canal           CanalVenda
+
+  // Piscina (aba fechada)
+  abaId           String?         @unique @map("aba_id")
+  aba             Aba?            @relation(fields: [abaId], references: [id])
+
+  // Restaurante (conta de mesa fechada)
+  mesaId          String?         @map("mesa_id")
+  mesa            Mesa?           @relation(fields: [mesaId], references: [id])
+
+  // Snapshot do identificador de pedido volante (para o recibo)
+  identificadorCliente String?    @map("identificador_cliente")
+
+  userId          String          @map("user_id")
+  user            User            @relation(fields: [userId], references: [id])
+
+  subtotal        Decimal         @db.Decimal(10, 2)
+  desconto        Decimal         @db.Decimal(10, 2) @default(0)
+  total           Decimal         @db.Decimal(10, 2)
+
+  metodoPagamento MetodoPagamento @map("metodo_pagamento")
+  // Para pagamento misto:
+  valorDinheiro   Decimal?        @db.Decimal(10, 2) @map("valor_dinheiro")
+  valorCartao     Decimal?        @db.Decimal(10, 2) @map("valor_cartao")
+  valorMobile     Decimal?        @db.Decimal(10, 2) @map("valor_mobile")
+
+  // Troco
+  valorRecebido   Decimal?        @db.Decimal(10, 2) @map("valor_recebido")
+  troco           Decimal?        @db.Decimal(10, 2)
+
+  // Divisão de conta (split bill) — registada e impressa no recibo.
+  // divisaoDetalhe: [{ parte: 1, valor: 500.00, itens?: ["2× Cerveja"] }, ...]
+  divisaoTipo     TipoDivisao?    @map("divisao_tipo")
+  divisaoPartes   Int?            @map("divisao_partes")
+  divisaoDetalhe  Json?           @map("divisao_detalhe")
+
+  estado          EstadoVenda     @default(PAGA)
+  notas           String?
+
+  criadoEm       DateTime        @default(now()) @map("criado_em")
+  atualizadoEm   DateTime        @updatedAt @map("atualizado_em")
+
+  itens           ItemVenda[]
+  pedidosFaturados Pedido[]      @relation("PedidoVenda")
+
+  @@index([canal])
+  @@index([criadoEm])
+  @@index([estado])
+  @@map("vendas")
+}
+
+model ItemVenda {
+  id              String    @id @default(cuid())
+  vendaId         String    @map("venda_id")
+  venda           Venda     @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+
+  produtoId       String?   @map("produto_id")
+  produto         Produto?  @relation(fields: [produtoId], references: [id])
+  nomeProduto     String    @map("nome_produto") // Snapshot do nome
+
+  quantidade      Int
+  precoUnitario   Decimal   @db.Decimal(10, 2) @map("preco_unitario")
+  // Snapshot do custo no momento da venda (margem real nos relatórios).
+  // null em vendas antigas ou sem precoCusto definido.
+  custoUnitario   Decimal?  @db.Decimal(10, 2) @map("custo_unitario")
+  subtotal        Decimal   @db.Decimal(10, 2)
+
+  @@map("itens_venda")
+}
+
+// ============================================================
+// MÓDULO: CAIXA
+// ============================================================
+
+model SessaoCaixa {
+  id            String            @id @default(cuid())
+  userId        String            @map("user_id")
+  user          User              @relation(fields: [userId], references: [id])
+  canal         CanalVenda
+  estado        EstadoSessaoCaixa @default(ABERTA)
+
+  fundoInicial  Decimal           @db.Decimal(10, 2) @map("fundo_inicial")
+
+  // Totais calculados no fecho
+  totalVendas   Decimal?          @db.Decimal(10, 2) @map("total_vendas")
+  totalDinheiro Decimal?          @db.Decimal(10, 2) @map("total_dinheiro")
+  totalCartao   Decimal?          @db.Decimal(10, 2) @map("total_cartao")
+  totalMobile   Decimal?          @db.Decimal(10, 2) @map("total_mobile")
+  nrTransacoes  Int?              @map("nr_transacoes")
+
+  // Diferenças (contagem física vs. sistema)
+  diferenca     Decimal?          @db.Decimal(10, 2)
+  notas         String?
+
+  abertoEm     DateTime          @default(now()) @map("aberto_em")
+  fechadoEm    DateTime?         @map("fechado_em")
+
+  @@index([canal, estado])
+  @@index([abertoEm])
+  @@map("sessoes_caixa")
+}
+
+// ============================================================
+// MÓDULO: CONFIGURAÇÕES
+// ============================================================
+
+model Configuracao {
+  id    String @id @default(cuid())
+  chave String @unique
+  valor String
+  tipo  String @default("string") // string, number, boolean, json
+
+  @@map("configuracoes")
+}

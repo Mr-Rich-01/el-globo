@@ -1,8 +1,12 @@
-﻿node_modules/
+node_modules/
 .next/
 .env
 .env.local
 .env.production
 .env.development
+
+# Fotos de produtos (dados de runtime — vivem no volume elglobo_uploads)
 public/uploads/produtos/*
 !public/uploads/produtos/.gitkeep
+el-globo/public/uploads/produtos/*
+!el-globo/public/uploads/produtos/.gitkeep
