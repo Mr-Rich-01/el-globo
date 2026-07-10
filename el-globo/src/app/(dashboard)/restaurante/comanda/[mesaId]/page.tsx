@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { semDecimais } from '@/lib/serializar'
 import { notFound } from 'next/navigation'
 import { ComandaClient } from './ComandaClient'
 
@@ -60,5 +61,5 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
     precoVenda: Number(f.precoVenda)
   }))
 
-  return <ComandaClient mesa={mesa as any} produtos={produtosMapeados as any} fichas={fichasMapeadas as any} />
+  return <ComandaClient mesa={semDecimais(mesa) as any} produtos={produtosMapeados as any} fichas={fichasMapeadas as any} />
 }

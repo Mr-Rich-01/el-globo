@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { semDecimais } from '@/lib/serializar'
 import { AbasClient } from './AbasClient'
 
 export default async function AbasPage() {
@@ -13,5 +14,5 @@ export default async function AbasPage() {
     orderBy: { abertaEm: 'asc' },
   })
 
-  return <AbasClient abas={abas as any} />
+  return <AbasClient abas={semDecimais(abas) as any} />
 }
