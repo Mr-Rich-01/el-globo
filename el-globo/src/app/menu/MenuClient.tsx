@@ -1,9 +1,11 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react'
 
 // Cardápio digital mobile-first (lido por QR code na mesa).
-// Consulta apenas — sem pedidos, sem login. Fotos WebP ≤50KB.
+// Consulta apenas — sem pedidos, sem login, zero botões de ação.
+// Navegação: chips sticky com scroll-spy (os chips saltam para a secção,
+// não filtram); a pesquisa mostra uma lista plana e desliga o scroll-spy.
 
 export type GrupoMenu = { id: string; nome: string }
 export type ItemMenu = {
@@ -24,193 +26,288 @@ const ICONE_GRUPO: Record<string, string> = {
   'Cocktails & Bar': '🍸',
 }
 
+const fmtPreco = (v: number) => `MT ${v.toFixed(2)}`
+
+// ─── Cartões (dois variantes) ────────────────────────────────
+// Com imagem: cartão vertical com foto grande em destaque.
+// Sem imagem: linha compacta full-width — evita placeholders gigantes
+// (todos os cocktails do bar vêm sem foto).
+
+function CartaoComImagem({ item }: { item: ItemMenu }) {
+  return (
+    <article className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={item.imagemUrl!} alt={item.nome} loading="lazy" decoding="async"
+        width={400} height={300}
+        style={{ width: '100%', height: 'auto', aspectRatio: '4 / 3', objectFit: 'cover', display: 'block' }}
+      />
+      <div style={{ padding: '12px 14px 14px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.3 }}>{item.nome}</div>
+        {item.descricao && (
+          <p style={{
+            fontSize: '13px', color: 'var(--color-text-secondary)', margin: '4px 0 0', lineHeight: 1.45,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}>
+            {item.descricao}
+          </p>
+        )}
+        <div style={{ fontSize: '17px', fontWeight: 800, color: 'var(--color-accent)', marginTop: 'auto', paddingTop: '10px' }}>
+          {fmtPreco(item.preco)}
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function CartaoCompacto({ item }: { item: ItemMenu }) {
+  return (
+    <article className="card" style={{
+      display: 'flex', gap: '12px', padding: '12px', alignItems: 'center', gridColumn: '1 / -1',
+    }}>
+      <div style={{
+        width: '56px', height: '56px', borderRadius: '12px', flexShrink: 0,
+        background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', opacity: 0.55,
+      }}>
+        {ICONE_GRUPO[item.grupo.nome] ?? '🍽️'}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.3 }}>{item.nome}</div>
+        {item.descricao && (
+          <p style={{
+            fontSize: '12px', color: 'var(--color-text-secondary)', margin: '3px 0 0', lineHeight: 1.4,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+          }}>
+            {item.descricao}
+          </p>
+        )}
+      </div>
+      <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>
+        {fmtPreco(item.preco)}
+      </div>
+    </article>
+  )
+}
+
+const renderItem = (item: ItemMenu) =>
+  item.imagemUrl
+    ? <CartaoComImagem key={item.id} item={item} />
+    : <CartaoCompacto key={item.id} item={item} />
+
+// ─── Página ──────────────────────────────────────────────────
+
 export function MenuClient({ itens }: { itens: ItemMenu[] }) {
   const [pesquisa, setPesquisa] = useState('')
-  const [grupoAtivo, setGrupoAtivo] = useState<string | null>(null)
-  const [subAtiva, setSubAtiva] = useState<string | null>(null)
+  const [ativo, setAtivo] = useState<string | null>(null)
+  const headerRef = useRef<HTMLElement | null>(null)
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const emVista = useRef(new Set<string>())
+  const bloqueio = useRef(false) // ignora o observer durante o smooth scroll pós-clique
+  const [offset, setOffset] = useState(170)
 
+  const termo = pesquisa.trim().toLowerCase()
+
+  // Grupos únicos na ordem do servidor (grupos contíguos, Bar no fim)
   const grupos = useMemo(
     () => Array.from(new Map(itens.map(i => [i.grupo.id, i.grupo])).values()),
     [itens]
   )
-  // Chips de subcategoria: só existem depois de escolher um grupo
-  const subcategorias = useMemo(
-    () => grupoAtivo
-      ? Array.from(new Map(
-          itens.filter(i => i.grupo.id === grupoAtivo && i.sub).map(i => [i.sub!.id, i.sub!])
-        ).values())
-      : [],
-    [itens, grupoAtivo]
+
+  // Grupo → subsecções (subcategorias como subtítulos, não chips)
+  const seccoesPorGrupo = useMemo(
+    () => grupos.map(g => {
+      const doGrupo = itens.filter(i => i.grupo.id === g.id)
+      const subMap = new Map<string, { sub: GrupoMenu | null; itens: ItemMenu[] }>()
+      for (const i of doGrupo) {
+        const k = i.sub?.id ?? '__sem-sub'
+        if (!subMap.has(k)) subMap.set(k, { sub: i.sub, itens: [] })
+        subMap.get(k)!.itens.push(i)
+      }
+      return { grupo: g, subseccoes: Array.from(subMap.values()) }
+    }),
+    [grupos, itens]
   )
 
-  const termo = pesquisa.trim().toLowerCase()
-  const filtrados = itens.filter(i => {
-    if (termo) {
-      return i.nome.toLowerCase().includes(termo) || (i.descricao?.toLowerCase().includes(termo) ?? false)
-    }
-    if (grupoAtivo && i.grupo.id !== grupoAtivo) return false
-    if (subAtiva && i.sub?.id !== subAtiva) return false
-    return true
-  })
+  const resultados = useMemo(
+    () => termo
+      ? itens.filter(i =>
+          i.nome.toLowerCase().includes(termo) || (i.descricao?.toLowerCase().includes(termo) ?? false))
+      : [],
+    [itens, termo]
+  )
 
-  // Secções: agrupa por "grupo — subcategoria" para leitura natural do menu
-  const seccoes = useMemo(() => {
-    const map = new Map<string, { titulo: string; itens: ItemMenu[] }>()
-    for (const i of filtrados) {
-      const chaveSec = i.sub ? `${i.grupo.id}:${i.sub.id}` : i.grupo.id
-      const titulo = i.sub ? i.sub.nome : i.grupo.nome
-      if (!map.has(chaveSec)) map.set(chaveSec, { titulo: `${ICONE_GRUPO[i.grupo.nome] ?? '•'} ${titulo}`, itens: [] })
-      map.get(chaveSec)!.itens.push(i)
-    }
-    return Array.from(map.values())
-  }, [filtrados])
+  // Altura real do header sticky → offset do scroll-spy e do scrollMarginTop
+  useLayoutEffect(() => {
+    const medir = () => setOffset(headerRef.current?.offsetHeight ?? 170)
+    medir()
+    window.addEventListener('resize', medir)
+    return () => window.removeEventListener('resize', medir)
+  }, [termo])
 
-  function escolherGrupo(id: string | null) {
-    setGrupoAtivo(id)
-    setSubAtiva(null)
+  // Scroll-spy: destaca o primeiro grupo (em ordem do documento) visível
+  // na zona de leitura (entre o header e ~45% do viewport)
+  useEffect(() => {
+    if (termo) { emVista.current.clear(); return }
+    const obs = new IntersectionObserver(entries => {
+      for (const e of entries) {
+        const id = e.target.id.replace('sec-', '')
+        if (e.isIntersecting) emVista.current.add(id)
+        else emVista.current.delete(id)
+      }
+      if (bloqueio.current) return
+      const primeiro = grupos.find(g => emVista.current.has(g.id))
+      if (primeiro) setAtivo(primeiro.id)
+    }, { rootMargin: `-${offset}px 0px -55% 0px` })
+    for (const g of grupos) {
+      const el = document.getElementById(`sec-${g.id}`)
+      if (el) obs.observe(el)
+    }
+    return () => obs.disconnect()
+  }, [termo, grupos, offset])
+
+  // No fundo da página, ativa a última secção (pode ser curta demais
+  // para alguma vez entrar na zona de leitura do observer)
+  useEffect(() => {
+    if (termo) return
+    const aoScroll = () => {
+      if (bloqueio.current) return
+      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 24) {
+        const ultimo = grupos[grupos.length - 1]
+        if (ultimo) setAtivo(ultimo.id)
+      }
+    }
+    window.addEventListener('scroll', aoScroll, { passive: true })
+    return () => window.removeEventListener('scroll', aoScroll)
+  }, [termo, grupos])
+
+  const chipAtivo = ativo ?? grupos[0]?.id ?? null
+
+  // Mantém o chip destacado visível na barra horizontal
+  useEffect(() => {
+    if (!chipAtivo) return
+    chipRefs.current[chipAtivo]?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' })
+  }, [chipAtivo])
+
+  function irParaGrupo(id: string) {
+    setAtivo(id)
+    bloqueio.current = true
+    window.setTimeout(() => { bloqueio.current = false }, 700)
+    document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth' })
   }
 
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--color-bg-base)', paddingBottom: '48px' }}>
-      {/* ─── Cabeçalho fixo: logo + pesquisa + chips ──────────── */}
-      <header style={{
-        position: 'sticky', top: 0, zIndex: 10,
-        background: 'var(--color-bg-base)',
-        borderBottom: '1px solid var(--color-border)',
-        padding: '16px 16px 12px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-          <div style={{
-            width: '42px', height: '42px', borderRadius: '12px', flexShrink: 0,
-            background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-dark))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px',
-          }}>
-            🌍
+      {/* ─── Cabeçalho sticky: brand + pesquisa + chips ───────── */}
+      <header
+        ref={headerRef}
+        style={{
+          position: 'sticky', top: 0, zIndex: 20,
+          background: 'rgba(10, 15, 30, 0.92)',
+          backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+          borderBottom: '1px solid var(--color-border)',
+          padding: '14px 16px 12px',
+        }}
+      >
+        <div style={{ maxWidth: '720px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: '13px', flexShrink: 0,
+              background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-dark))',
+              boxShadow: 'var(--shadow-glow-accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '23px',
+            }}>
+              🌍
+            </div>
+            <div>
+              <div style={{ fontSize: '19px', fontWeight: 800, letterSpacing: '0.03em' }}>EL GLOBO</div>
+              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Restaurante · Bar · Piscina
+              </div>
+            </div>
           </div>
-          <div>
-            <div style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '0.02em' }}>EL GLOBO</div>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>Restaurante · Bar · Piscina</div>
+
+          {/* Pesquisa */}
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '15px', opacity: 0.6 }}>🔍</span>
+            <input
+              className="input"
+              placeholder="Pesquisar pratos e bebidas..."
+              value={pesquisa}
+              onChange={e => setPesquisa(e.target.value)}
+              style={{ width: '100%', paddingLeft: '40px', minHeight: '48px', borderRadius: '12px', fontSize: '15px' }}
+            />
           </div>
-        </div>
 
-        {/* Pesquisa */}
-        <div style={{ position: 'relative', marginBottom: '10px' }}>
-          <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '15px', opacity: 0.6 }}>🔍</span>
-          <input
-            className="input"
-            placeholder="Pesquisar pratos e bebidas..."
-            value={pesquisa}
-            onChange={e => setPesquisa(e.target.value)}
-            style={{ paddingLeft: '40px', minHeight: '48px', borderRadius: '12px', fontSize: '15px' }}
-          />
+          {/* Chips de navegação (scroll-spy) — escondidos durante a pesquisa */}
+          {!termo && grupos.length > 0 && (
+            <nav className="chips-scroll" style={{ marginTop: '10px' }} aria-label="Categorias">
+              {grupos.map(g => (
+                <button
+                  key={g.id}
+                  ref={el => { chipRefs.current[g.id] = el }}
+                  onClick={() => irParaGrupo(g.id)}
+                  className={`btn btn-sm btn-touch ${chipAtivo === g.id ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
+                >
+                  {ICONE_GRUPO[g.nome] ?? ''} {g.nome}
+                </button>
+              ))}
+            </nav>
+          )}
         </div>
-
-        {/* Chips de grupo (scroll horizontal) */}
-        <div className="chips-scroll">
-          <button
-            onClick={() => escolherGrupo(null)}
-            className={`btn btn-sm btn-touch ${!grupoAtivo ? 'btn-primary' : 'btn-secondary'}`}
-            style={{ borderRadius: '999px' }}
-          >
-            Tudo
-          </button>
-          {grupos.map(g => (
-            <button
-              key={g.id}
-              onClick={() => escolherGrupo(grupoAtivo === g.id ? null : g.id)}
-              className={`btn btn-sm btn-touch ${grupoAtivo === g.id ? 'btn-primary' : 'btn-secondary'}`}
-              style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
-            >
-              {ICONE_GRUPO[g.nome] ?? ''} {g.nome}
-            </button>
-          ))}
-        </div>
-
-        {/* Chips de subcategoria — aparecem só com grupo escolhido */}
-        {subcategorias.length > 0 && (
-          <div className="chips-scroll" style={{ marginTop: '8px' }}>
-            <button
-              onClick={() => setSubAtiva(null)}
-              className={`btn btn-sm btn-touch ${!subAtiva ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ borderRadius: '999px' }}
-            >
-              Todas
-            </button>
-            {subcategorias.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setSubAtiva(subAtiva === s.id ? null : s.id)}
-                className={`btn btn-sm btn-touch ${subAtiva === s.id ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
-              >
-                {s.nome}
-              </button>
-            ))}
-          </div>
-        )}
       </header>
 
-      {/* ─── Lista do cardápio ────────────────────────────────── */}
+      {/* ─── Conteúdo ─────────────────────────────────────────── */}
       <main style={{ padding: '16px', maxWidth: '720px', margin: '0 auto' }}>
-        {seccoes.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--color-text-muted)' }}>
-            <div style={{ fontSize: '40px', marginBottom: '8px' }}>🔍</div>
-            Nenhum item encontrado{termo ? ` para "${pesquisa}"` : ''}.
-          </div>
+        {termo ? (
+          /* Modo pesquisa: lista plana, sem scroll-spy */
+          resultados.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--color-text-muted)' }}>
+              <div style={{ fontSize: '40px', marginBottom: '8px' }}>🔍</div>
+              Nenhum item encontrado para &quot;{pesquisa}&quot;.
+            </div>
+          ) : (
+            <div className="menu-grid">
+              {resultados.map(renderItem)}
+            </div>
+          )
+        ) : (
+          seccoesPorGrupo.map(({ grupo, subseccoes }) => (
+            <section
+              key={grupo.id}
+              id={`sec-${grupo.id}`}
+              style={{ scrollMarginTop: `${offset + 8}px`, marginBottom: '32px' }}
+            >
+              <h2 style={{
+                fontSize: '18px', fontWeight: 800, letterSpacing: '-0.01em',
+                margin: '8px 0 14px', display: 'flex', alignItems: 'center', gap: '10px',
+              }}>
+                <span>{ICONE_GRUPO[grupo.nome] ?? '•'}</span>
+                {grupo.nome}
+                <span style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
+              </h2>
+
+              {subseccoes.map(({ sub, itens: itensSub }) => (
+                <div key={sub?.id ?? '__sem-sub'} style={{ marginBottom: '18px' }}>
+                  {sub && (
+                    <h3 style={{
+                      fontSize: '12px', fontWeight: 700, textTransform: 'uppercase',
+                      letterSpacing: '0.08em', color: 'var(--color-accent)', margin: '0 0 10px',
+                    }}>
+                      {sub.nome}
+                    </h3>
+                  )}
+                  <div className="menu-grid">
+                    {itensSub.map(renderItem)}
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))
         )}
 
-        {seccoes.map(sec => (
-          <section key={sec.titulo} style={{ marginBottom: '24px' }}>
-            <h2 style={{
-              fontSize: '13px', fontWeight: 800, textTransform: 'uppercase',
-              letterSpacing: '0.08em', color: 'var(--color-accent)',
-              margin: '4px 0 10px', display: 'flex', alignItems: 'center', gap: '8px',
-            }}>
-              {sec.titulo}
-              <span style={{ flex: 1, height: '1px', background: 'var(--color-border)' }} />
-            </h2>
-
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {sec.itens.map(item => (
-                <article key={item.id} className="card" style={{
-                  display: 'flex', gap: '12px', padding: '12px', alignItems: 'center',
-                }}>
-                  {item.imagemUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.imagemUrl} alt={item.nome} loading="lazy" width={84} height={84}
-                      style={{ width: '84px', height: '84px', objectFit: 'cover', borderRadius: '10px', flexShrink: 0 }}
-                    />
-                  ) : (
-                    <div style={{
-                      width: '84px', height: '84px', borderRadius: '10px', flexShrink: 0,
-                      background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '30px', opacity: 0.55,
-                    }}>
-                      {ICONE_GRUPO[item.grupo.nome] ?? '🍽️'}
-                    </div>
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.3 }}>{item.nome}</div>
-                    {item.descricao && (
-                      <p style={{
-                        fontSize: '12px', color: 'var(--color-text-secondary)', margin: '4px 0 0', lineHeight: 1.4,
-                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                      }}>
-                        {item.descricao}
-                      </p>
-                    )}
-                    <div style={{ fontSize: '16px', fontWeight: 800, color: 'var(--color-accent)', marginTop: '6px' }}>
-                      MT {item.preco.toFixed(2)}
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        ))}
-
-        <footer style={{ textAlign: 'center', fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '32px' }}>
+        <footer style={{ textAlign: 'center', fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '32px', lineHeight: 1.8 }}>
           🌍 EL Globo — chame o garçom para fazer o seu pedido.
           <br />Preços em Meticais (MT), IVA incluído.
         </footer>

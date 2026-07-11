@@ -514,3 +514,13 @@
 .recibo-valor { text-align: right; white-space: nowrap; padding-left: 8px; }
 .recibo-total td { font-weight: 700; font-size: 12px; }
 .recibo-sub { font-size: 9px; }
+
+/* ── Cardápio público (/menu) ── */
+.menu-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 560px) {
+  .menu-grid { grid-template-columns: 1fr 1fr; }
+}

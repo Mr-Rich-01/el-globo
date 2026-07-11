@@ -6,6 +6,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts'
+import { StockTab } from './StockTab'
 
 type Canal = 'RESTAURANTE' | 'BOTTLESTORE' | 'PISCINA'
 const CANAL_INFO: Record<Canal, { label: string; icone: string; cor: string }> = {
@@ -60,6 +61,10 @@ function exportarCSV(nome: string, cabecalho: string[], linhas: (string | number
 
 export function RelatoriosClient({ canais }: Props) {
   const hoje = new Date()
+  const [tab, setTab] = useState<'vendas' | 'stock'>('vendas')
+  // Lazy-mount: a tab Stock só monta (e faz fetch) na primeira abertura;
+  // depois fica montada com display:none para preservar filtros e dados.
+  const [stockJaAberto, setStockJaAberto] = useState(false)
   const [dataInicio, setDataInicio] = useState(format(startOfMonth(hoje), 'yyyy-MM-dd'))
   const [dataFim, setDataFim] = useState(format(hoje, 'yyyy-MM-dd'))
   const [canal, setCanal] = useState<Canal | ''>('')
@@ -90,7 +95,12 @@ export function RelatoriosClient({ canais }: Props) {
     }
   }, [dataInicio, dataFim, canal, operadorId])
 
-  useEffect(() => { carregar() }, [carregar])
+  // Agendado (não síncrono) — evita cascata de renders e absorve
+  // mudanças rápidas de filtros num só fetch
+  useEffect(() => {
+    const t = setTimeout(carregar, 0)
+    return () => clearTimeout(t)
+  }, [carregar])
 
   const kpis = dados?.kpis
 
@@ -124,8 +134,29 @@ export function RelatoriosClient({ canais }: Props) {
             Análise histórica de faturação, margens, operadores e quebras — filtrada pelos seus canais.
           </p>
         </div>
-        <button onClick={exportarTudo} disabled={!dados} className="btn btn-secondary">⬇️ Exportar CSV</button>
+        {tab === 'vendas' && (
+          <button onClick={exportarTudo} disabled={!dados} className="btn btn-secondary">⬇️ Exportar CSV</button>
+        )}
       </div>
+
+      {/* ─── Tabs ────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+        <button
+          className={`btn btn-sm ${tab === 'vendas' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setTab('vendas')}
+        >
+          📈 Vendas
+        </button>
+        <button
+          className={`btn btn-sm ${tab === 'stock' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => { setTab('stock'); setStockJaAberto(true) }}
+        >
+          📦 Stock
+        </button>
+      </div>
+
+      {/* ─── Tab Vendas (conteúdo original) ──────────────── */}
+      <div style={{ display: tab === 'vendas' ? undefined : 'none' }}>
 
       {/* ─── Filtros ─────────────────────────────────────── */}
       <div className="card" style={{ padding: '16px', marginBottom: '20px', display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -345,6 +376,14 @@ export function RelatoriosClient({ canais }: Props) {
             </div>
           </div>
         </>
+      )}
+      </div>
+
+      {/* ─── Tab Stock (ledger de movimentos) ────────────── */}
+      {stockJaAberto && (
+        <div style={{ display: tab === 'stock' ? undefined : 'none' }}>
+          <StockTab canais={canais} />
+        </div>
       )}
     </div>
   )
