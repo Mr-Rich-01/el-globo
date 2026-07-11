@@ -55,35 +55,67 @@ export async function PUT(
 
     const { stocks, ...produtoData } = parsed.data
 
-    const produto = await prisma.produto.update({
-      where: { id },
-      data: produtoData,
-    })
-
+    // Gestor só mexe nos SEUS canais: valida o que envia e só apaga/recria
+    // linhas dos canais permitidos — as dos outros gestores ficam intactas.
+    const permitidos = canaisPermitidos(session)
     if (stocks) {
-      // Gestor só mexe nos SEUS canais: valida o que envia e só apaga/recria
-      // linhas dos canais permitidos — as dos outros gestores ficam intactas.
-      const permitidos = canaisPermitidos(session)
       const foraDoCanal = stocks.find(s => !permitidos.includes(s.canal as CanalVenda))
       if (foraDoCanal) {
         return NextResponse.json({ erro: `Sem acesso ao canal ${foraDoCanal.canal}` }, { status: 403 })
       }
-
-      await prisma.stockCanal.deleteMany({
-        where: { produtoId: id, canal: { in: permitidos } },
-      })
-
-      await prisma.stockCanal.createMany({
-        data: stocks.map(s => ({
-          produtoId: id,
-          canal: s.canal as CanalVenda,
-          precoVenda: s.precoVenda,
-          precoCusto: s.precoCusto ?? null,
-          stockAtual: s.stockAtual,
-          stockMinimo: s.stockMinimo
-        }))
-      })
     }
+
+    const produto = await prisma.$transaction(async (tx) => {
+      const atualizado = await tx.produto.update({
+        where: { id },
+        data: produtoData,
+      })
+
+      if (stocks) {
+        // Guardar os valores atuais antes do delete/recreate para o ledger
+        // não perder os ajustes de stock feitos na edição.
+        const linhasAntes = await tx.stockCanal.findMany({
+          where: { produtoId: id, canal: { in: permitidos } },
+        })
+        const stockAntesPorCanal = new Map(linhasAntes.map(l => [l.canal, Number(l.stockAtual)]))
+
+        await tx.stockCanal.deleteMany({
+          where: { produtoId: id, canal: { in: permitidos } },
+        })
+
+        await tx.stockCanal.createMany({
+          data: stocks.map(s => ({
+            produtoId: id,
+            canal: s.canal as CanalVenda,
+            precoVenda: s.precoVenda,
+            precoCusto: s.precoCusto ?? null,
+            stockAtual: s.stockAtual,
+            stockMinimo: s.stockMinimo
+          }))
+        })
+
+        for (const s of stocks) {
+          const antes = stockAntesPorCanal.get(s.canal as CanalVenda) ?? 0
+          const delta = s.stockAtual - antes
+          if (delta === 0) continue
+          await tx.movimentacaoStock.create({
+            data: {
+              produtoId: id,
+              canal: s.canal as CanalVenda,
+              tipo: delta > 0 ? 'ENTRADA_AJUSTE' : 'SAIDA_AJUSTE',
+              quantidade: Math.abs(delta),
+              stockAntes: antes,
+              stockDepois: s.stockAtual,
+              referencia: 'edicao-produto',
+              notas: 'Ajuste de stock na edição do produto',
+              userId: session.sub,
+            },
+          })
+        }
+      }
+
+      return atualizado
+    })
 
     return NextResponse.json({ ok: true, produto })
   } catch (error) {

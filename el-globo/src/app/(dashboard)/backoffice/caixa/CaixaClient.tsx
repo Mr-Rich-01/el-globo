@@ -128,7 +128,7 @@ export function CaixaClient({ canaisDisponiveis }: { canaisDisponiveis: string[]
       {loading ? (
         <div className="text-center py-10 text-[var(--color-text-muted)]">A carregar...</div>
       ) : (
-        <div className="bg-[var(--color-bg-elevated)] rounded-xl border border-[var(--color-border)] overflow-hidden">
+        <div className="bg-[var(--color-bg-elevated)] rounded-xl border border-[var(--color-border)] overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-[var(--color-border)] bg-[rgba(255,255,255,0.02)]">

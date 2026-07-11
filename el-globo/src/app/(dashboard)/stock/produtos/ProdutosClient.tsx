@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { stockAbaixoMinimo } from '@/lib/stock-alerta'
+import { Combobox } from '@/components/Combobox'
 
 type Canal = 'RESTAURANTE' | 'BOTTLESTORE' | 'PISCINA'
 const CANAIS: { id: Canal; label: string; icone: string }[] = [
@@ -57,6 +58,10 @@ const formVazio = (): FormState => ({
 })
 
 type DesmancheState = { produto: Produto; canal: Canal; quantidade: string }
+// Ajustes rápidos de inventário por linha: entrada (compra/reposição) soma
+// ao stock; saída regista uma quebra com motivo (ledger unificado).
+type EntradaState = { produto: Produto; canal: Canal; quantidade: string; precoCusto: string; notas: string }
+type SaidaState = { produto: Produto; canal: Canal; quantidade: string; motivo: string; notas: string }
 // produto null = modal aberto pelo botão geral da página (escolhe-se no dropdown)
 type TransferenciaState = { produto: Produto | null; origem: Canal; destino: Canal; quantidade: string; preco: string }
 
@@ -85,6 +90,8 @@ export function ProdutosClient({ role, canais }: Props) {
   const podeTransferir = role === 'ADMIN' || role === 'GERENTE'
   const [desmanche, setDesmanche] = useState<DesmancheState | null>(null)
   const [transferencia, setTransferencia] = useState<TransferenciaState | null>(null)
+  const [entrada, setEntrada] = useState<EntradaState | null>(null)
+  const [saida, setSaida] = useState<SaidaState | null>(null)
   const [acaoErro, setAcaoErro] = useState<string | null>(null)
   const [aExecutar, setAExecutar] = useState(false)
   const [sucesso, setSucesso] = useState<string | null>(null)
@@ -363,6 +370,87 @@ export function ProdutosClient({ role, canais }: Props) {
     }
   }
 
+  // ─── Entrada / Saída rápida de stock ─────────────────────────
+  function abrirEntrada(p: Produto) {
+    const opcoes = canais.filter(c => stockDoCanal(p, c))
+    setAcaoErro(null)
+    setEntrada({ produto: p, canal: opcoes[0] ?? canais[0], quantidade: '', precoCusto: '', notas: '' })
+  }
+
+  async function confirmarEntrada(e: React.FormEvent) {
+    e.preventDefault()
+    if (!entrada) return
+    setAcaoErro(null)
+    setAExecutar(true)
+    try {
+      const res = await fetch('/api/stock/entrada', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produtoId: entrada.produto.id,
+          canal: entrada.canal,
+          quantidade: Number(entrada.quantidade),
+          ...(entrada.precoCusto ? { precoCusto: Number(entrada.precoCusto) } : {}),
+          ...(entrada.notas.trim() ? { notas: entrada.notas.trim() } : {}),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAcaoErro(data.erro ?? 'Erro ao registar entrada')
+        return
+      }
+      setEntrada(null)
+      setSucesso(data.mensagem ?? 'Entrada registada')
+      setTimeout(() => setSucesso(null), 5000)
+      fetchData()
+    } catch {
+      setAcaoErro('Erro de ligação — tente novamente')
+    } finally {
+      setAExecutar(false)
+    }
+  }
+
+  function abrirSaida(p: Produto) {
+    const opcoes = canais.filter(c => stockDoCanal(p, c))
+    setAcaoErro(null)
+    setSaida({ produto: p, canal: opcoes[0] ?? canais[0], quantidade: '', motivo: 'Ajuste manual de inventário', notas: '' })
+  }
+
+  async function confirmarSaida(e: React.FormEvent) {
+    e.preventDefault()
+    if (!saida) return
+    setAcaoErro(null)
+    setAExecutar(true)
+    try {
+      // Saída manual = quebra: ledger unificado (SAIDA_QUEBRA) e visível
+      // no relatório de quebras, que é onde se procura stock desaparecido.
+      const res = await fetch('/api/quebras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produtoId: saida.produto.id,
+          canal: saida.canal,
+          quantidade: Number(saida.quantidade),
+          motivo: saida.motivo.trim(),
+          ...(saida.notas.trim() ? { notas: saida.notas.trim() } : {}),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAcaoErro(data.erro ?? 'Erro ao registar saída')
+        return
+      }
+      setSaida(null)
+      setSucesso('Saída de stock registada como quebra')
+      setTimeout(() => setSucesso(null), 5000)
+      fetchData()
+    } catch {
+      setAcaoErro('Erro de ligação — tente novamente')
+    } finally {
+      setAExecutar(false)
+    }
+  }
+
   // Possíveis "pais" (caixas): mesma categoria, sem parent próprio
   const possiveisPais = produtos.filter(p => !p.parentProductId && p.id !== editandoId)
 
@@ -448,6 +536,12 @@ export function ProdutosClient({ role, canais }: Props) {
                     )
                   })}
                   <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {podeGerirStock && p.stockCanais.length > 0 && (
+                      <>
+                        <button onClick={() => abrirEntrada(p)} className="btn btn-ghost btn-sm" title="Registar entrada de stock (compra/reposição)" style={{ color: 'var(--color-success, #10b981)' }}>➕ Entrada</button>
+                        <button onClick={() => abrirSaida(p)} className="btn btn-ghost btn-sm" title="Registar saída manual (quebra/ajuste)" style={{ color: 'var(--color-danger)' }}>➖ Saída</button>
+                      </>
+                    )}
                     {podeGerirStock && p.filhos.some(f => f.fatorConversao) && (
                       <button onClick={() => abrirDesmanche(p)} className="btn btn-ghost btn-sm" title="Desmanchar caixa em unidades">📦 Desmanchar</button>
                     )}
@@ -627,10 +721,12 @@ export function ProdutosClient({ role, canais }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Produto "Caixa" (pai)</label>
-                  <select className="input" value={form.parentProductId} onChange={e => setForm(f => ({ ...f, parentProductId: e.target.value }))}>
-                    <option value="">Nenhum — produto independente</option>
-                    {possiveisPais.map(p => <option key={p.id} value={p.id}>{p.nome} ({p.sku})</option>)}
-                  </select>
+                  <Combobox
+                    options={possiveisPais.map(p => ({ value: p.id, label: p.nome, sublabel: p.sku }))}
+                    value={form.parentProductId}
+                    onChange={v => setForm(f => ({ ...f, parentProductId: v }))}
+                    emptyOption="Nenhum — produto independente"
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Unidades por caixa</label>
@@ -701,6 +797,173 @@ export function ProdutosClient({ role, canais }: Props) {
           </form>
         </div>
       )}
+
+      {/* ─── Modal Entrada de Stock ────────────────────────── */}
+      {entrada && (() => {
+        const canaisComStock = canais.filter(c => stockDoCanal(entrada.produto, c))
+        const sc = stockDoCanal(entrada.produto, entrada.canal)
+        const qtd = Number(entrada.quantidade) || 0
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+          }} onClick={() => setEntrada(null)}>
+            <form
+              onSubmit={confirmarEntrada}
+              onClick={e => e.stopPropagation()}
+              className="card animate-fade-in"
+              style={{ padding: '28px', maxWidth: '440px', width: '100%' }}
+            >
+              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>➕ Entrada de Stock</h3>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+                {entrada.produto.nome} ({entrada.produto.sku}) — a quantidade soma ao stock existente.
+              </p>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Canal</label>
+                <select className="input" value={entrada.canal} onChange={e => setEntrada(s => s && { ...s, canal: e.target.value as Canal })}>
+                  {canaisComStock.map(c => {
+                    const cfg = CANAIS.find(x => x.id === c)!
+                    return <option key={c} value={c}>{cfg.icone} {cfg.label} ({stockDoCanal(entrada.produto, c)?.stockAtual ?? 0} em stock)</option>
+                  })}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Quantidade *</label>
+                  <input
+                    className="input" type="number" min="0.001" step="any" required autoFocus
+                    value={entrada.quantidade}
+                    onChange={e => setEntrada(s => s && { ...s, quantidade: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Preço custo (un.)</label>
+                  <input
+                    className="input" type="number" min="0" step="0.01"
+                    placeholder={sc?.precoCusto != null ? `Atual: MT ${sc.precoCusto.toFixed(2)}` : 'Opcional'}
+                    value={entrada.precoCusto}
+                    onChange={e => setEntrada(s => s && { ...s, precoCusto: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Notas</label>
+                <input
+                  className="input" placeholder="Ex: Fatura FN-1234, fornecedor..."
+                  value={entrada.notas}
+                  onChange={e => setEntrada(s => s && { ...s, notas: e.target.value })}
+                />
+              </div>
+
+              {sc && qtd > 0 && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)', fontSize: '13px', marginBottom: '12px' }}>
+                  Stock passa de <b>{sc.stockAtual}</b> para <b>{Number(sc.stockAtual) + qtd}</b>.
+                </div>
+              )}
+
+              {acaoErro && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--color-danger-muted)', color: 'var(--color-danger)', fontSize: '13px', marginBottom: '12px' }}>
+                  ⚠ {acaoErro}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="button" onClick={() => setEntrada(null)} className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancelar</button>
+                <button type="submit" disabled={aExecutar || qtd <= 0} className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+                  {aExecutar ? 'A registar...' : 'Registar Entrada'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )
+      })()}
+
+      {/* ─── Modal Saída Manual (quebra) ───────────────────── */}
+      {saida && (() => {
+        const canaisComStock = canais.filter(c => stockDoCanal(saida.produto, c))
+        const sc = stockDoCanal(saida.produto, saida.canal)
+        const qtd = Number(saida.quantidade) || 0
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+          }} onClick={() => setSaida(null)}>
+            <form
+              onSubmit={confirmarSaida}
+              onClick={e => e.stopPropagation()}
+              className="card animate-fade-in"
+              style={{ padding: '28px', maxWidth: '440px', width: '100%' }}
+            >
+              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '8px' }}>➖ Saída Manual de Stock</h3>
+              <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
+                {saida.produto.nome} ({saida.produto.sku}) — registada como quebra, visível no relatório de quebras.
+              </p>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Canal</label>
+                <select className="input" value={saida.canal} onChange={e => setSaida(s => s && { ...s, canal: e.target.value as Canal })}>
+                  {canaisComStock.map(c => {
+                    const cfg = CANAIS.find(x => x.id === c)!
+                    return <option key={c} value={c}>{cfg.icone} {cfg.label} ({stockDoCanal(saida.produto, c)?.stockAtual ?? 0} em stock)</option>
+                  })}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Quantidade *</label>
+                  <input
+                    className="input" type="number" min="0.001" step="any" required autoFocus
+                    value={saida.quantidade}
+                    onChange={e => setSaida(s => s && { ...s, quantidade: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Motivo *</label>
+                  <input
+                    className="input" required maxLength={120}
+                    value={saida.motivo}
+                    onChange={e => setSaida(s => s && { ...s, motivo: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Notas</label>
+                <input
+                  className="input" placeholder="Detalhes adicionais (opcional)"
+                  value={saida.notas}
+                  onChange={e => setSaida(s => s && { ...s, notas: e.target.value })}
+                />
+              </div>
+
+              {sc && qtd > Number(sc.stockAtual) && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--color-danger-muted)', color: 'var(--color-danger)', fontSize: '13px', marginBottom: '12px' }}>
+                  ⚠ Só há {sc.stockAtual} em stock neste canal.
+                </div>
+              )}
+
+              {acaoErro && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--color-danger-muted)', color: 'var(--color-danger)', fontSize: '13px', marginBottom: '12px' }}>
+                  ⚠ {acaoErro}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button type="button" onClick={() => setSaida(null)} className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancelar</button>
+                <button type="submit" disabled={aExecutar || qtd <= 0} className="btn btn-danger" style={{ flex: 1, justifyContent: 'center' }}>
+                  {aExecutar ? 'A registar...' : 'Registar Saída'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )
+      })()}
 
       {/* ─── Modal Desmanchar Caixa ────────────────────────── */}
       {desmanche && (() => {
@@ -801,16 +1064,13 @@ export function ProdutosClient({ role, canais }: Props) {
 
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Produto</label>
-                <select
-                  className="input" required
+                <Combobox
+                  options={produtosTransferiveis.map(p => ({ value: p.id, label: p.nome, sublabel: p.sku }))}
                   value={prod?.id ?? ''}
-                  onChange={e => escolherProdutoTransferencia(e.target.value)}
-                >
-                  <option value="">Selecionar produto...</option>
-                  {produtosTransferiveis.map(p => (
-                    <option key={p.id} value={p.id}>{p.nome} ({p.sku})</option>
-                  ))}
-                </select>
+                  onChange={v => escolherProdutoTransferencia(v)}
+                  placeholder="Pesquisar produto..."
+                  required
+                />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>

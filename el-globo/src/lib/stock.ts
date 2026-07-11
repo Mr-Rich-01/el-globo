@@ -235,6 +235,56 @@ export async function registarQuebraStock(tx: Tx, opts: {
   return quebra
 }
 
+// Regista uma ENTRADA manual de stock (receção de compra/reposição):
+// incremento no canal exato + movimentação ENTRADA_COMPRA com
+// stockAntes/stockDepois. Se vier precoCusto, atualiza o custo da linha
+// (o custo da última compra passa a ser o custo de referência).
+// Exige linha StockCanal existente — entrada num canal onde o produto
+// nunca foi ativado é quase sempre engano.
+export async function registarEntradaStock(tx: Tx, opts: {
+  produtoId: string
+  canal: CanalVenda
+  quantidade: number
+  precoCusto?: number | null
+  referencia?: string
+  notas?: string | null
+  userId: string
+}): Promise<{ stockDepois: number }> {
+  const { produtoId, canal, quantidade, precoCusto, notas, userId } = opts
+
+  const produto = await tx.produto.findUniqueOrThrow({ where: { id: produtoId } })
+  const stockCanal = await tx.stockCanal.findUnique({
+    where: { produtoId_canal: { produtoId, canal } },
+  })
+  if (!stockCanal) {
+    throw new Error(`${produto.nome} não está ativo no canal ${canal} — edite o produto e ative-o nesse canal primeiro`)
+  }
+
+  const depois = await tx.stockCanal.update({
+    where: { id: stockCanal.id },
+    data: {
+      stockAtual: { increment: quantidade },
+      ...(precoCusto != null ? { precoCusto } : {}),
+    },
+  })
+
+  await tx.movimentacaoStock.create({
+    data: {
+      produtoId,
+      canal,
+      tipo: 'ENTRADA_COMPRA',
+      quantidade,
+      stockAntes: Number(depois.stockAtual) - quantidade,
+      stockDepois: depois.stockAtual,
+      referencia: opts.referencia ?? 'entrada-manual',
+      notas: notas ?? null,
+      userId,
+    },
+  })
+
+  return { stockDepois: Number(depois.stockAtual) }
+}
+
 interface DesmancharOpts {
   caixaProdutoId: string
   unidadeProdutoId: string

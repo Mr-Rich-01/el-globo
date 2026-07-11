@@ -1,7 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Menu, X } from 'lucide-react'
 import type { JWTPayload } from '@/lib/auth'
 import { canaisPermitidos } from '@/lib/canais'
 import type { CanalVenda } from '@prisma/client'
@@ -33,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   // Stock
   { href: '/stock/produtos', label: 'Produtos', icon: '📦', roles: ['ADMIN', 'GERENTE', 'OPERADOR_BOTTLESTORE'], section: 'Stock' },
   { href: '/stock/fichas-tecnicas', label: 'Fichas Técnicas', icon: '📋', roles: ['ADMIN', 'GERENTE'], canal: 'RESTAURANTE', section: 'Stock' },
+  { href: '/stock/categorias', label: 'Categorias', icon: '🏷️', roles: ['ADMIN', 'GERENTE'], section: 'Stock' },
   { href: '/stock/quebras', label: 'Quebras', icon: '🗑️', roles: ['ADMIN', 'GERENTE'], section: 'Stock' },
 
   // Backoffice
@@ -44,6 +47,10 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar({ user }: { user: JWTPayload }) {
   const pathname = usePathname()
   const router = useRouter()
+
+  // Drawer em tablet/mobile (<1024px); em desktop o CSS ignora o estado.
+  const [open, setOpen] = useState(false)
+  useEffect(() => setOpen(false), [pathname])
 
   // Filtro duplo: role E canal — o gerente da Bottlestore não vê
   // "Mesas" nem "Abas Piscina"; o do restaurante não vê "POS Loja".
@@ -60,7 +67,20 @@ export function Sidebar({ user }: { user: JWTPayload }) {
   }
 
   return (
-    <aside className="sidebar">
+    <>
+      <button
+        type="button"
+        className="sidebar-fab"
+        onClick={() => setOpen(o => !o)}
+        aria-label={open ? 'Fechar menu' : 'Abrir menu'}
+        aria-expanded={open}
+      >
+        {open ? <X size={26} strokeWidth={2.5} /> : <Menu size={26} strokeWidth={2.5} />}
+      </button>
+
+      {open && <div className="sidebar-backdrop" onClick={() => setOpen(false)} />}
+
+      <aside className={`sidebar ${open ? 'open' : ''}`}>
       {/* Logo */}
       <div style={{
         padding: '20px 16px',
@@ -157,6 +177,7 @@ export function Sidebar({ user }: { user: JWTPayload }) {
           Sair
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   )
 }

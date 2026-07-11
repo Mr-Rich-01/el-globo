@@ -252,6 +252,7 @@ export function RelatoriosClient({ canais }: Props) {
               {dados.topProdutos.length === 0 ? (
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>Sem dados.</p>
               ) : (
+                <div className="table-scroll">
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
@@ -270,6 +271,7 @@ export function RelatoriosClient({ canais }: Props) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>
@@ -281,6 +283,7 @@ export function RelatoriosClient({ canais }: Props) {
               {dados.porOperador.length === 0 ? (
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>Sem dados.</p>
               ) : (
+                <div className="table-scroll">
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
@@ -301,6 +304,7 @@ export function RelatoriosClient({ canais }: Props) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
 
@@ -310,6 +314,7 @@ export function RelatoriosClient({ canais }: Props) {
               {dados.quebras.length === 0 ? (
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>Sem quebras no período. 👍</p>
               ) : (
+                <div className="table-scroll">
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
@@ -335,6 +340,7 @@ export function RelatoriosClient({ canais }: Props) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           </div>

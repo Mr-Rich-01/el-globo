@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/prisma'
+import { getSession } from '@/lib/auth'
 import { MesasClient } from './MesasClient'
 
 export default async function MesasPage() {
+  const session = await getSession()
   const [mesas, volantes] = await Promise.all([
     prisma.mesa.findMany({
       where: { ativo: true },
@@ -40,5 +42,5 @@ export default async function MesasPage() {
     total: v.itens.reduce((acc, i) => acc + Number(i.precoUnitario) * i.quantidade, 0),
   }))
 
-  return <MesasClient mesas={mesas} volantes={volantesMapeados} />
+  return <MesasClient mesas={mesas} volantes={volantesMapeados} role={session?.role ?? ''} />
 }

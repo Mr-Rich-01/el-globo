@@ -37,11 +37,67 @@ export interface VolanteData {
   total: number
 }
 
-export function MesasClient({ mesas, volantes = [] }: { mesas: MesaData[]; volantes?: VolanteData[] }) {
+type NovaMesaForm = { numero: string; nome: string; zona: string; lugares: string }
+
+export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaData[]; volantes?: VolanteData[]; role?: string }) {
   const router = useRouter()
   const [zonaAtiva, setZonaAtiva] = useState<string>('Todas')
   const [isPending, startTransition] = useTransition()
   const [mesaSelecionada, setMesaSelecionada] = useState<MesaData | null>(null)
+
+  // Gestão de mesas (criar/apagar) — só ADMIN e GERENTE
+  const podeGerir = role === 'ADMIN' || role === 'GERENTE'
+  const [novaMesa, setNovaMesa] = useState<NovaMesaForm | null>(null)
+  const [gestaoErro, setGestaoErro] = useState<string | null>(null)
+  const [aGuardar, setAGuardar] = useState(false)
+
+  function abrirNovaMesa() {
+    const maiorNumero = mesas.reduce((max, m) => Math.max(max, m.numero), 0)
+    setGestaoErro(null)
+    setNovaMesa({ numero: String(maiorNumero + 1), nome: '', zona: '', lugares: '4' })
+  }
+
+  async function criarMesa(e: React.FormEvent) {
+    e.preventDefault()
+    if (!novaMesa) return
+    setGestaoErro(null)
+    setAGuardar(true)
+    try {
+      const res = await fetch('/api/mesas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          numero: Number(novaMesa.numero),
+          nome: novaMesa.nome.trim() || null,
+          zona: novaMesa.zona.trim() || null,
+          lugares: Number(novaMesa.lugares) || 4,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setGestaoErro(data.erro ?? 'Erro ao criar mesa')
+        return
+      }
+      setNovaMesa(null)
+      router.refresh()
+    } catch {
+      setGestaoErro('Erro de ligação — tente novamente')
+    } finally {
+      setAGuardar(false)
+    }
+  }
+
+  async function apagarMesa(mesa: MesaData, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!confirm(`Apagar a mesa ${mesa.numero}${mesa.nome ? ` (${mesa.nome})` : ''}?`)) return
+    const res = await fetch(`/api/mesas/${mesa.id}`, { method: 'DELETE' })
+    const data = await res.json()
+    if (!res.ok) {
+      alert(data.erro ?? 'Erro ao apagar mesa')
+      return
+    }
+    router.refresh()
+  }
 
   const zonas = ['Todas', ...Array.from(new Set(mesas.map(m => m.zona ?? 'Sem Zona')))]
   const mesasFiltradas = zonaAtiva === 'Todas'
@@ -84,6 +140,11 @@ export function MesasClient({ mesas, volantes = [] }: { mesas: MesaData[]; volan
           <button onClick={() => router.refresh()} className="btn btn-secondary btn-sm">
             🔄 Atualizar
           </button>
+          {podeGerir && (
+            <button onClick={abrirNovaMesa} className="btn btn-primary btn-sm">
+              ➕ Nova Mesa
+            </button>
+          )}
         </div>
       </div>
 
@@ -150,7 +211,21 @@ export function MesasClient({ mesas, volantes = [] }: { mesas: MesaData[]; volan
                 }}>
                   {mesa.numero}
                 </span>
-                <span style={{ fontSize: '20px' }}>{cfg.icon}</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {podeGerir && mesa.estado === 'LIVRE' && (
+                    // span clicável (não <button>): o card já é um botão e
+                    // botões aninhados são HTML inválido
+                    <span
+                      role="button"
+                      title="Apagar mesa"
+                      onClick={e => apagarMesa(mesa, e)}
+                      style={{ fontSize: '14px', opacity: 0.55, padding: '2px 4px' }}
+                    >
+                      🗑
+                    </span>
+                  )}
+                  <span style={{ fontSize: '20px' }}>{cfg.icon}</span>
+                </span>
               </div>
 
               {/* Nome */}
@@ -218,6 +293,78 @@ export function MesasClient({ mesas, volantes = [] }: { mesas: MesaData[]; volan
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ─── Modal Nova Mesa ───────────────────────────────── */}
+      {novaMesa && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+        }} onClick={() => setNovaMesa(null)}>
+          <form
+            onSubmit={criarMesa}
+            onClick={e => e.stopPropagation()}
+            className="card animate-fade-in"
+            style={{ padding: '28px', maxWidth: '400px', width: '100%' }}
+          >
+            <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>➕ Nova Mesa</h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Número *</label>
+                <input
+                  className="input" type="number" min="1" step="1" required autoFocus
+                  value={novaMesa.numero}
+                  onChange={e => setNovaMesa(f => f && { ...f, numero: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Lugares</label>
+                <input
+                  className="input" type="number" min="1" max="50" step="1"
+                  value={novaMesa.lugares}
+                  onChange={e => setNovaMesa(f => f && { ...f, lugares: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Nome</label>
+              <input
+                className="input" placeholder="Ex: Mesa VIP 1 (opcional)" maxLength={60}
+                value={novaMesa.nome}
+                onChange={e => setNovaMesa(f => f && { ...f, nome: e.target.value })}
+              />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '4px', color: 'var(--color-text-secondary)' }}>Zona</label>
+              <input
+                className="input" placeholder="Ex: Interior, Esplanada, Varanda" maxLength={60}
+                list="zonas-existentes"
+                value={novaMesa.zona}
+                onChange={e => setNovaMesa(f => f && { ...f, zona: e.target.value })}
+              />
+              <datalist id="zonas-existentes">
+                {zonas.filter(z => z !== 'Todas' && z !== 'Sem Zona').map(z => <option key={z} value={z} />)}
+              </datalist>
+            </div>
+
+            {gestaoErro && (
+              <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'var(--color-danger-muted)', color: 'var(--color-danger)', fontSize: '13px', marginBottom: '12px' }}>
+                ⚠ {gestaoErro}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" onClick={() => setNovaMesa(null)} className="btn btn-secondary" style={{ flex: 1, justifyContent: 'center' }}>Cancelar</button>
+              <button type="submit" disabled={aGuardar} className="btn btn-primary" style={{ flex: 1, justifyContent: 'center' }}>
+                {aGuardar ? 'A criar...' : 'Criar Mesa'}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
