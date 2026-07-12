@@ -36,17 +36,20 @@ export async function PATCH(
 
   try {
     // ── Atualização por secção (Cozinha ou Bar) ──────────────────
-    if (destino && (novoEstado === 'PENDENTE' || novoEstado === 'EM_PREPARACAO' || novoEstado === 'PRONTO')) {
+    if (destino && (novoEstado === 'PENDENTE' || novoEstado === 'EM_PREPARACAO' || novoEstado === 'PRONTO' || novoEstado === 'ENTREGUE')) {
       const pedido = await prisma.$transaction(async (tx) => {
         await tx.itemPedido.updateMany({
           where: {
             pedidoId: id,
             destino,
             // "Iniciar" não regride itens já prontos; "Pronto" fecha
-            // todos os itens ativos da secção.
+            // todos os itens ativos da secção; "Entregar" só entrega
+            // o que está pronto.
             estadoKDS: novoEstado === 'EM_PREPARACAO'
               ? { in: ['PENDENTE'] }
-              : { notIn: ['ENTREGUE', 'CANCELADO'] },
+              : novoEstado === 'ENTREGUE'
+                ? { in: ['PRONTO'] }
+                : { notIn: ['ENTREGUE', 'CANCELADO'] },
           },
           data: { estadoKDS: novoEstado },
         })
@@ -61,7 +64,8 @@ export async function PATCH(
           where: { id },
           data: {
             estado: agregado,
-            prontoEm: agregado === 'PRONTO' ? new Date() : null,
+            ...(agregado === 'PRONTO' ? { prontoEm: new Date() } : {}),
+            ...(agregado === 'ENTREGUE' ? { entregueEm: new Date() } : {}),
           },
           include: INCLUDE_PEDIDO,
         })
@@ -101,12 +105,17 @@ export async function PATCH(
       notifyKDSClients({ tipo: 'PEDIDO_PRONTO', pedido })
     }
 
-    // Se entregue, liberar mesa se todos os pedidos estiverem entregues
+    // Se entregue, liberar mesa apenas quando não resta nada por preparar
+    // NEM por faturar — entregue-mas-por-pagar mantém a mesa ocupada
+    // (na prática, quem liberta a mesa é o checkout).
     if (novoEstado === 'ENTREGUE' && pedido.mesaId) {
       const pendentes = await prisma.pedido.count({
         where: {
           mesaId: pedido.mesaId,
-          estado: { notIn: ['ENTREGUE', 'CANCELADO'] },
+          OR: [
+            { estado: { notIn: ['ENTREGUE', 'CANCELADO'] } },
+            { vendaId: null, estado: { not: 'CANCELADO' } },
+          ],
         },
       })
       if (pendentes === 0) {

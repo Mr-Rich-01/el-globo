@@ -34,13 +34,15 @@ export function destinoDeFicha(ficha: {
 
 // Estado agregado do pedido a partir dos estados dos itens.
 // PRONTO só quando TODAS as secções (Cozinha E Bar) terminaram;
-// PARCIALMENTE_PRONTO quando parte dos itens já está pronta.
+// PARCIALMENTE_PRONTO quando parte dos itens já está pronta;
+// ENTREGUE quando tudo o que estava pronto foi fisicamente entregue.
 export function calcularEstadoAgregado(
   itens: { estadoKDS: EstadoPedido }[]
-): Extract<EstadoPedido, 'PENDENTE' | 'EM_PREPARACAO' | 'PARCIALMENTE_PRONTO' | 'PRONTO'> {
+): Extract<EstadoPedido, 'PENDENTE' | 'EM_PREPARACAO' | 'PARCIALMENTE_PRONTO' | 'PRONTO' | 'ENTREGUE'> {
   const ativos = itens.filter(i => i.estadoKDS !== 'CANCELADO')
   if (ativos.length === 0) return 'PENDENTE'
 
+  if (ativos.every(i => i.estadoKDS === 'ENTREGUE')) return 'ENTREGUE'
   const prontos = ativos.filter(i => i.estadoKDS === 'PRONTO' || i.estadoKDS === 'ENTREGUE')
   if (prontos.length === ativos.length) return 'PRONTO'
   if (prontos.length > 0) return 'PARCIALMENTE_PRONTO'

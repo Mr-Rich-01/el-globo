@@ -32,6 +32,7 @@ export interface VolanteData {
   identificadorCliente: string
   garcom: string
   estado: string
+  pago: boolean
   criadoEm: Date | string
   nrItens: number
   total: number
@@ -112,6 +113,17 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
     conta: mesas.filter(m => m.estado === 'CONTA_PEDIDA').length,
   }
 
+  function entregarPedido(pedidoId: string) {
+    startTransition(async () => {
+      await fetch(`/api/pedidos/${pedidoId}/estado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'ENTREGUE' }),
+      })
+      router.refresh()
+    })
+  }
+
   function handleMesaClick(mesa: MesaData) {
     if (mesa.estado === 'LIVRE') {
       // Abrir mesa e ir para comanda
@@ -136,10 +148,15 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
             Clique numa mesa livre para abrir comanda · Numa ocupada para ver detalhes
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <button onClick={() => router.refresh()} className="btn btn-secondary btn-sm">
             🔄 Atualizar
           </button>
+          {['ADMIN', 'GERENTE', 'OPERADOR_BALCAO'].includes(role) && (
+            <button onClick={() => router.push('/restaurante/balcao')} className="btn btn-primary">
+              🥡 Nova Venda ao Balcão
+            </button>
+          )}
           {podeGerir && (
             <button onClick={abrirNovaMesa} className="btn btn-primary btn-sm">
               ➕ Nova Mesa
@@ -274,21 +291,37 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
               <div key={v.id} className="card" style={{ padding: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                   <div style={{ fontSize: '15px', fontWeight: 700 }}>🧍 {v.identificadorCliente}</div>
-                  <span className={`badge ${v.estado === 'PRONTO' ? 'badge-success' : v.estado === 'EM_PREPARACAO' || v.estado === 'PARCIALMENTE_PRONTO' ? 'badge-info' : 'badge-warning'}`}>
-                    {v.estado === 'ENTREGUE' ? 'POR PAGAR' : v.estado.replace(/_/g, ' ')}
+                  <span style={{ display: 'flex', gap: '4px' }}>
+                    {v.pago && <span className="badge badge-success">PAGO</span>}
+                    <span className={`badge ${v.estado === 'PRONTO' ? 'badge-success' : v.estado === 'EM_PREPARACAO' || v.estado === 'PARCIALMENTE_PRONTO' ? 'badge-info' : 'badge-warning'}`}>
+                      {v.estado === 'ENTREGUE' ? 'POR PAGAR' : v.estado.replace(/_/g, ' ')}
+                    </span>
                   </span>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginBottom: '10px' }}>
                   Garçom: {v.garcom} · {v.nrItens} {v.nrItens === 1 ? 'item' : 'itens'} · há {formatDistanceToNow(new Date(v.criadoEm), { locale: ptBR })}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                   <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-accent)' }}>MT {v.total.toFixed(2)}</span>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => router.push(`/restaurante/checkout/pedido/${v.id}`)}
-                  >
-                    💳 Fechar Conta
-                  </button>
+                  <span style={{ display: 'flex', gap: '6px' }}>
+                    {v.estado === 'PRONTO' && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        disabled={isPending}
+                        onClick={() => entregarPedido(v.id)}
+                      >
+                        📦 Entregar
+                      </button>
+                    )}
+                    {!v.pago && (
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => router.push(`/restaurante/checkout/pedido/${v.id}`)}
+                      >
+                        💳 Fechar Conta
+                      </button>
+                    )}
+                  </span>
                 </div>
               </div>
             ))}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition } from 'react'
 import { ReciboTermico } from '@/components/ReciboTermico'
+import { ImpressoraConfig } from '@/components/ImpressoraConfig'
 import { imprimirReciboFisico } from '@/lib/imprimir-client'
 import { DadosRecibo } from '@/lib/recibo'
 
@@ -170,6 +171,7 @@ export default function POSPage() {
         <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
           <h1 style={{ fontSize: '18px', fontWeight: 800 }}>🛒 POS — Bottlestore</h1>
           <span className="badge badge-success" style={{ marginLeft: 'auto' }}>Online</span>
+          <ImpressoraConfig />
         </div>
 
         {/* Campo de pesquisa / scanner */}

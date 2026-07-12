@@ -485,8 +485,16 @@
 .recibo-termico { display: none; }
 
 @media print {
+  /* Se o driver reescalar o conteúdo (talão pequeno com margem),
+     trocar para `size: auto` — com width:100% o recibo adapta-se
+     ao rolo que o driver declarar. */
   @page { size: 80mm auto; margin: 0; }
 
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100%;
+  }
   body { background: #fff !important; }
   body * { visibility: hidden; }
 
@@ -496,8 +504,10 @@
     position: absolute;
     left: 0;
     top: 0;
-    width: 72mm;          /* 80mm menos margens físicas do rolo */
-    padding: 2mm;
+    width: 100% !important;   /* ocupa toda a largura imprimível do rolo */
+    max-width: none !important;
+    box-sizing: border-box;
+    padding: 0 2mm;
     background: #fff;
     color: #000;
     font-family: 'Courier New', monospace;

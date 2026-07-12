@@ -10,7 +10,7 @@ import { ptBR } from 'date-fns/locale'
 // "PRONTO" quando as duas secções terminam (estado agregado no backend).
 
 type DestinoPreparo = 'COZINHA' | 'BAR'
-type EstadoSeccao = 'PENDENTE' | 'EM_PREPARACAO' | 'PRONTO'
+type EstadoSeccao = 'PENDENTE' | 'EM_PREPARACAO' | 'PRONTO' | 'ENTREGUE'
 
 interface ItemPreparo {
   id: string; quantidade: number; notas: string | null
@@ -21,6 +21,7 @@ interface ItemPreparo {
 
 interface PedidoPreparo {
   id: string; canal: string; estado: string; criadoEm: string
+  vendaId: string | null
   mesa: { numero: number; zona: string | null } | null
   aba: { identificador: string } | null
   garcom: { id: string; nome: string } | null
@@ -33,6 +34,7 @@ const ESTADO_CONFIG: Record<EstadoSeccao, { label: string; cor: string; classe: 
   PENDENTE:       { label: 'Pendente',      cor: '#f59e0b', classe: 'kds-pendente' },
   EM_PREPARACAO:  { label: 'Em Preparação', cor: '#3b82f6', classe: 'kds-preparando' },
   PRONTO:         { label: 'Pronto',        cor: '#10b981', classe: 'kds-pronto' },
+  ENTREGUE:       { label: 'Entregue',      cor: '#10b981', classe: 'kds-pronto' },
 }
 
 const DESTINO_CONFIG: Record<DestinoPreparo, { titulo: string; icone: string; vazio: string }> = {
@@ -44,6 +46,7 @@ const DESTINO_CONFIG: Record<DestinoPreparo, { titulo: string; icone: string; va
 function estadoSeccao(itens: ItemPreparo[]): EstadoSeccao {
   const ativos = itens.filter(i => i.estadoKDS !== 'CANCELADO')
   if (ativos.length === 0) return 'PRONTO'
+  if (ativos.every(i => i.estadoKDS === 'ENTREGUE')) return 'ENTREGUE'
   if (ativos.every(i => i.estadoKDS === 'PRONTO' || i.estadoKDS === 'ENTREGUE')) return 'PRONTO'
   if (ativos.some(i => i.estadoKDS === 'EM_PREPARACAO')) return 'EM_PREPARACAO'
   return 'PENDENTE'
@@ -113,6 +116,9 @@ export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
     .map(p => ({ ...p, itensSeccao: p.itens.filter(i => i.destino === destino) }))
     .filter(p => p.itensSeccao.length > 0)
     .map(p => ({ ...p, estadoSeccao: estadoSeccao(p.itensSeccao) }))
+    // A secção que já entregou os seus itens deixa de ver o cartão
+    // (a outra secção continua a vê-lo até entregar também)
+    .filter(p => p.estadoSeccao !== 'ENTREGUE')
     .filter(p => filtro === 'TODOS' || p.estadoSeccao === filtro)
     .sort((a, b) => new Date(a.criadoEm).getTime() - new Date(b.criadoEm).getTime())
 
@@ -217,7 +223,7 @@ export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
                         : `Garçom: ${pedido.garcom?.nome ?? pedido.user.nome}`}
                     </div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
+                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
                     <div style={{
                       fontSize: '11px', fontWeight: 700, padding: '2px 8px',
                       borderRadius: '999px', background: urgente ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
@@ -225,6 +231,14 @@ export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
                     }}>
                       ⏱ {tempoEspera}
                     </div>
+                    {pedido.vendaId && (
+                      <div style={{
+                        fontSize: '11px', fontWeight: 700, padding: '2px 8px',
+                        borderRadius: '999px', background: 'rgba(16,185,129,0.15)', color: '#10b981',
+                      }}>
+                        💰 Pago
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -294,20 +308,25 @@ export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
                     </button>
                   )}
                   {pedido.estadoSeccao === 'PRONTO' && (
-                    <button
-                      disabled
-                      className="btn btn-touch"
-                      style={{
-                        flex: 1, justifyContent: 'center',
-                        background: 'rgba(16,185,129,0.1)', color: '#10b981',
-                        border: '1px solid rgba(16,185,129,0.2)',
-                        cursor: 'default',
-                      }}
-                    >
-                      {pedido.estado === 'PARCIALMENTE_PRONTO'
-                        ? (destino === 'COZINHA' ? '✅ Pronto — Bar a terminar' : '✅ Pronto — Cozinha a terminar')
-                        : '✅ Aguardando Entrega'}
-                    </button>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <button
+                        onClick={() => atualizarEstado(pedido.id, 'ENTREGUE')}
+                        disabled={isPending}
+                        className="btn btn-touch"
+                        style={{
+                          justifyContent: 'center',
+                          background: 'rgba(16,185,129,0.2)', color: '#10b981',
+                          border: '1px solid rgba(16,185,129,0.3)',
+                        }}
+                      >
+                        📦 Entregar
+                      </button>
+                      {pedido.estado === 'PARCIALMENTE_PRONTO' && (
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+                          {destino === 'COZINHA' ? 'Bar ainda a terminar' : 'Cozinha ainda a terminar'}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

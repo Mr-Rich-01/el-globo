@@ -11,7 +11,9 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
       where: { id: mesaId },
       include: {
         pedidos: {
-          where: { estado: { notIn: ['ENTREGUE', 'CANCELADO'] } },
+          // Por faturar (mesmo já entregues) — o Total da Mesa tem de
+          // incluir consumo entregue-mas-por-pagar
+          where: { vendaId: null, estado: { not: 'CANCELADO' } },
           include: {
             itens: {
               include: { produto: true, fichaTecnica: true },

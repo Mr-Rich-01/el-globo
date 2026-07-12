@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 
-type Role = 'ADMIN' | 'GERENTE' | 'EMPREGADO_MESA' | 'OPERADOR_BOTTLESTORE' | 'COZINHEIRO'
+type Role = 'ADMIN' | 'GERENTE' | 'EMPREGADO_MESA' | 'OPERADOR_BALCAO' | 'OPERADOR_BOTTLESTORE' | 'COZINHEIRO'
 type Canal = 'RESTAURANTE' | 'BOTTLESTORE' | 'PISCINA'
 
 interface Utilizador {
@@ -18,6 +18,7 @@ const ROLE_LABEL: Record<Role, string> = {
   ADMIN: 'Administrador',
   GERENTE: 'Gerente',
   EMPREGADO_MESA: 'Empregado de Mesa',
+  OPERADOR_BALCAO: 'Operador de Balcão',
   OPERADOR_BOTTLESTORE: 'Operador Bottlestore',
   COZINHEIRO: 'Cozinheiro',
 }

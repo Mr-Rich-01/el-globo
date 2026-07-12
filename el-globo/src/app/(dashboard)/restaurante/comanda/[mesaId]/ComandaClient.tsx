@@ -93,6 +93,17 @@ export function ComandaClient({ mesa, produtos, fichas }: { mesa: Mesa; produtos
     })
   }
 
+  function entregarPedido(pedidoId: string) {
+    startTransition(async () => {
+      await fetch(`/api/pedidos/${pedidoId}/estado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'ENTREGUE' }),
+      })
+      router.refresh()
+    })
+  }
+
   const totalMesa = mesa.pedidos
     .flatMap(p => p.itens)
     .reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0)
@@ -224,10 +235,21 @@ export function ComandaClient({ mesa, produtos, fichas }: { mesa: Mesa; produtos
             ) : (
               mesa.pedidos.map(pedido => (
                 <div key={pedido.id} className="card" style={{ padding: '16px', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '8px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 600 }}>Pedido</span>
-                    <span className={`badge ${pedido.estado === 'PENDENTE' ? 'badge-warning' : pedido.estado === 'PRONTO' ? 'badge-success' : 'badge-info'}`}>
-                      {pedido.estado.replace(/_/g, ' ')}
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {pedido.estado === 'PRONTO' && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          disabled={isPending}
+                          onClick={() => entregarPedido(pedido.id)}
+                        >
+                          📦 Entregar
+                        </button>
+                      )}
+                      <span className={`badge ${pedido.estado === 'PENDENTE' ? 'badge-warning' : pedido.estado === 'PRONTO' || pedido.estado === 'ENTREGUE' ? 'badge-success' : 'badge-info'}`}>
+                        {pedido.estado.replace(/_/g, ' ')}
+                      </span>
                     </span>
                   </div>
                   {pedido.itens.map(item => (

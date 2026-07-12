@@ -15,14 +15,15 @@ export default async function MesasPage() {
         },
       },
     }),
-    // Pedidos volantes (sem mesa/aba) por faturar — clientes de pé/balcão
+    // Pedidos volantes (sem mesa/aba) — clientes de pé/balcão: por faturar
+    // OU já pagos mas ainda não entregues (venda ao balcão paga à cabeça)
     prisma.pedido.findMany({
       where: {
         mesaId: null,
         abaId: null,
         canal: { in: ['RESTAURANTE', 'PISCINA'] },
         estado: { notIn: ['CANCELADO'] },
-        vendaId: null,
+        OR: [{ vendaId: null }, { estado: { not: 'ENTREGUE' } }],
       },
       include: {
         itens: { select: { quantidade: true, precoUnitario: true } },
@@ -37,6 +38,7 @@ export default async function MesasPage() {
     identificadorCliente: v.identificadorCliente ?? 'Balcão',
     garcom: v.garcom?.nome ?? '—',
     estado: v.estado,
+    pago: v.vendaId != null,
     criadoEm: v.criadoEm,
     nrItens: v.itens.reduce((acc, i) => acc + i.quantidade, 0),
     total: v.itens.reduce((acc, i) => acc + Number(i.precoUnitario) * i.quantidade, 0),

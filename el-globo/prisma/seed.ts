@@ -103,6 +103,18 @@ async function main() {
   })
 
   await prisma.user.upsert({
+    where: { email: 'balcao@elglobo.com' },
+    update: { canal: CanalVenda.RESTAURANTE, role: Role.OPERADOR_BALCAO },
+    create: {
+      nome: 'Operador Balcão',
+      email: 'balcao@elglobo.com',
+      senha: senhaHash,
+      role: Role.OPERADOR_BALCAO,
+      canal: CanalVenda.RESTAURANTE,
+    },
+  })
+
+  await prisma.user.upsert({
     where: { email: 'bottlestore@elglobo.com' },
     update: { canal: CanalVenda.BOTTLESTORE },
     create: {
@@ -426,6 +438,7 @@ async function main() {
   console.log('  Gerente Restaurante:   gerente@elglobo.com / elglobo123')
   console.log('  Gerente Bottlestore:   gerente.loja@elglobo.com / elglobo123')
   console.log('  Empregado Mesa:        mesa@elglobo.com / elglobo123')
+  console.log('  Operador Balcão:       balcao@elglobo.com / elglobo123')
   console.log('  Operador Bottlestore:  bottlestore@elglobo.com / elglobo123')
   console.log('  Cozinheiro:            cozinha@elglobo.com / elglobo123')
   console.log('')

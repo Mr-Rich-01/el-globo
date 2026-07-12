@@ -22,9 +22,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: '📊', roles: ['ADMIN', 'GERENTE'], section: 'Principal' },
 
   // Restaurante
-  { href: '/restaurante/mesas', label: 'Mesas', icon: '🍽️', roles: ['ADMIN', 'GERENTE', 'EMPREGADO_MESA'], canal: 'RESTAURANTE', section: 'Restaurante' },
-  { href: '/restaurante/kds', label: 'Cozinha (KDS)', icon: '👨‍🍳', roles: ['ADMIN', 'GERENTE', 'COZINHEIRO', 'EMPREGADO_MESA'], canal: 'RESTAURANTE', section: 'Restaurante' },
-  { href: '/restaurante/bar', label: 'Bar (BDS)', icon: '🍹', roles: ['ADMIN', 'GERENTE', 'COZINHEIRO', 'EMPREGADO_MESA'], canal: 'RESTAURANTE', section: 'Restaurante' },
+  { href: '/restaurante/mesas', label: 'Mesas', icon: '🍽️', roles: ['ADMIN', 'GERENTE', 'EMPREGADO_MESA', 'OPERADOR_BALCAO'], canal: 'RESTAURANTE', section: 'Restaurante' },
+  { href: '/restaurante/balcao', label: 'Venda ao Balcão', icon: '🥡', roles: ['ADMIN', 'GERENTE', 'OPERADOR_BALCAO'], canal: 'RESTAURANTE', section: 'Restaurante' },
+  { href: '/restaurante/kds', label: 'Cozinha (KDS)', icon: '👨‍🍳', roles: ['ADMIN', 'GERENTE', 'COZINHEIRO', 'EMPREGADO_MESA', 'OPERADOR_BALCAO'], canal: 'RESTAURANTE', section: 'Restaurante' },
+  { href: '/restaurante/bar', label: 'Bar (BDS)', icon: '🍹', roles: ['ADMIN', 'GERENTE', 'COZINHEIRO', 'EMPREGADO_MESA', 'OPERADOR_BALCAO'], canal: 'RESTAURANTE', section: 'Restaurante' },
 
   // Bottlestore
   { href: '/bottlestore/pos', label: 'POS Loja', icon: '🛒', roles: ['ADMIN', 'GERENTE', 'OPERADOR_BOTTLESTORE'], canal: 'BOTTLESTORE', section: 'Bottlestore' },

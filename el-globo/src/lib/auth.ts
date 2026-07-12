@@ -85,6 +85,10 @@ export const PERMISSIONS = {
     'restaurante:view',
     'piscina:view', 'piscina:manage',
   ],
+  OPERADOR_BALCAO: [
+    'restaurante:view',
+    'kds:view',
+  ],
   OPERADOR_BOTTLESTORE: [
     'bottlestore:view', 'bottlestore:manage',
     'stock:view',
@@ -106,6 +110,7 @@ export const REDIRECT_BY_ROLE: Record<Role, string> = {
   ADMIN: '/dashboard',
   GERENTE: '/dashboard',
   EMPREGADO_MESA: '/restaurante/mesas',
+  OPERADOR_BALCAO: '/restaurante/mesas',
   OPERADOR_BOTTLESTORE: '/bottlestore/pos',
   COZINHEIRO: '/restaurante/kds',
 }

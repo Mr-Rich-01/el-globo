@@ -134,32 +134,61 @@ export async function POST(request: NextRequest) {
         include: { itens: true, mesa: true, aba: true },
       })
 
-      // Marcar pedidos como entregues, ligar à venda (anti-dupla-faturação)
-      // e libertar mesa / fechar aba
       const agora = new Date()
-      await tx.pedido.updateMany({
-        where: { id: { in: pedidosPorFaturar.map(p => p.id) } },
-        data: { estado: 'ENTREGUE', entregueEm: agora, vendaId: venda.id },
-      })
-      await tx.itemPedido.updateMany({
-        where: { pedidoId: { in: pedidosPorFaturar.map(p => p.id) } },
-        data: { estadoKDS: 'ENTREGUE' },
-      })
+      if (tipo === 'PEDIDO') {
+        // Venda ao balcão / volante: o pagamento acontece ANTES da entrega.
+        // Liga-se apenas à venda (anti-dupla-faturação); o estado de
+        // preparação fica intacto — o cartão permanece no KDS/BDS até
+        // alguém carregar em "Entregar".
+        await tx.pedido.updateMany({
+          where: { id: { in: pedidosPorFaturar.map(p => p.id) } },
+          data: { vendaId: venda.id },
+        })
+      } else {
+        // Mesa/aba: o cliente consumiu e vai embora — marcar entregue,
+        // ligar à venda e libertar mesa / fechar aba
+        await tx.pedido.updateMany({
+          where: { id: { in: pedidosPorFaturar.map(p => p.id) } },
+          data: { estado: 'ENTREGUE', entregueEm: agora, vendaId: venda.id },
+        })
+        await tx.itemPedido.updateMany({
+          where: { pedidoId: { in: pedidosPorFaturar.map(p => p.id) } },
+          data: { estadoKDS: 'ENTREGUE' },
+        })
 
-      if (tipo === 'MESA') {
-        await tx.mesa.update({ where: { id }, data: { estado: 'LIVRE' } })
-      } else if (tipo === 'ABA') {
-        await tx.aba.update({ where: { id }, data: { estado: 'FECHADA', fechadaEm: agora } })
+        if (tipo === 'MESA') {
+          await tx.mesa.update({ where: { id }, data: { estado: 'LIVRE' } })
+        } else {
+          await tx.aba.update({ where: { id }, data: { estado: 'FECHADA', fechadaEm: agora } })
+        }
       }
-      // tipo PEDIDO: não há mesa/aba para atualizar
 
       return { venda, pedidosFechados: pedidosPorFaturar.map(p => p.id) }
     })
 
-    // Limpar os cartões destes pedidos no KDS
-    resultado.pedidosFechados.forEach(pedidoId =>
-      notifyKDSClients({ tipo: 'REMOVER_PEDIDO', pedidoId })
-    )
+    // Atualizar os cartões no KDS/BDS
+    if (tipo === 'PEDIDO') {
+      // Pedido de balcão pago mas ainda em preparação: atualizar o cartão
+      // (badge "Pago"); se já tinha sido entregue, remover como antes.
+      const pedidoAtualizado = await prisma.pedido.findUnique({
+        where: { id },
+        include: {
+          itens: { include: { produto: true, fichaTecnica: true } },
+          mesa: true, aba: true,
+          garcom: { select: { id: true, nome: true } },
+          user: { select: { nome: true } },
+        },
+      })
+      if (pedidoAtualizado && pedidoAtualizado.estado !== 'ENTREGUE') {
+        notifyKDSClients({ tipo: 'ATUALIZAR_PEDIDO', pedido: pedidoAtualizado })
+      } else {
+        notifyKDSClients({ tipo: 'REMOVER_PEDIDO', pedidoId: id })
+      }
+    } else {
+      resultado.pedidosFechados.forEach(pedidoId =>
+        notifyKDSClients({ tipo: 'REMOVER_PEDIDO', pedidoId })
+      )
+    }
 
     return NextResponse.json({ ok: true, venda: resultado.venda }, { status: 201 })
   } catch (error: unknown) {
