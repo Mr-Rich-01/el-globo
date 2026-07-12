@@ -106,3 +106,40 @@ function centrar(s: string): string {
   const pad = Math.max(0, Math.floor((LARGURA - s.length) / 2))
   return ' '.repeat(pad) + s
 }
+
+// Consulta de mesa (pré-conta): talão para o cliente conferir ANTES de
+// pagar. Sem valor fiscal — não fecha a mesa, não gera Venda nem mexe
+// no estado dos pedidos.
+export interface DadosConsulta {
+  mesaLabel: string // "Mesa 4 — Nome"
+  criadoEm: string | Date
+  operador?: string
+  itens: LinhaRecibo[]
+  total: number
+}
+
+export function gerarTextoConsulta(d: DadosConsulta, nomeLoja = 'EL GLOBO'): string {
+  const data = new Date(d.criadoEm)
+  const linhas: string[] = []
+
+  linhas.push(centrar(nomeLoja))
+  linhas.push(centrar('*** CONSULTA DE MESA ***'))
+  linhas.push(centrar('NAO E FATURA'))
+  linhas.push(centrar(ascii(d.mesaLabel)))
+  linhas.push(centrar(`${data.toLocaleDateString('pt-PT')} ${data.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}`))
+  if (d.operador) linhas.push(centrar(`Operador: ${ascii(d.operador)}`))
+  linhas.push(linha('='))
+
+  for (const item of d.itens) {
+    const total = (item.precoUnitario * item.quantidade).toFixed(2)
+    linhas.push(parEsqDir(ascii(`${item.quantidade}x ${item.nome}`).slice(0, LARGURA - 10), total))
+  }
+
+  linhas.push(linha())
+  linhas.push(parEsqDir('TOTAL MT', d.total.toFixed(2)))
+  linhas.push(linha('='))
+  linhas.push(centrar('Documento sem valor fiscal'))
+  linhas.push('')
+
+  return linhas.join('\n')
+}

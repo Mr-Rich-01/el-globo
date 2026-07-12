@@ -7,6 +7,7 @@ import {
   ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts'
 import { StockTab } from './StockTab'
+import { StockBaixoTab } from './StockBaixoTab'
 
 type Canal = 'RESTAURANTE' | 'BOTTLESTORE' | 'PISCINA'
 const CANAL_INFO: Record<Canal, { label: string; icone: string; cor: string }> = {
@@ -61,10 +62,11 @@ function exportarCSV(nome: string, cabecalho: string[], linhas: (string | number
 
 export function RelatoriosClient({ canais }: Props) {
   const hoje = new Date()
-  const [tab, setTab] = useState<'vendas' | 'stock'>('vendas')
-  // Lazy-mount: a tab Stock só monta (e faz fetch) na primeira abertura;
+  const [tab, setTab] = useState<'vendas' | 'stock' | 'stockBaixo'>('vendas')
+  // Lazy-mount: cada tab de stock só monta (e faz fetch) na primeira abertura;
   // depois fica montada com display:none para preservar filtros e dados.
   const [stockJaAberto, setStockJaAberto] = useState(false)
+  const [stockBaixoJaAberto, setStockBaixoJaAberto] = useState(false)
   const [dataInicio, setDataInicio] = useState(format(startOfMonth(hoje), 'yyyy-MM-dd'))
   const [dataFim, setDataFim] = useState(format(hoje, 'yyyy-MM-dd'))
   const [canal, setCanal] = useState<Canal | ''>('')
@@ -152,6 +154,12 @@ export function RelatoriosClient({ canais }: Props) {
           onClick={() => { setTab('stock'); setStockJaAberto(true) }}
         >
           📦 Stock
+        </button>
+        <button
+          className={`btn btn-sm ${tab === 'stockBaixo' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => { setTab('stockBaixo'); setStockBaixoJaAberto(true) }}
+        >
+          ⚠️ Stock Baixo
         </button>
       </div>
 
@@ -383,6 +391,13 @@ export function RelatoriosClient({ canais }: Props) {
       {stockJaAberto && (
         <div style={{ display: tab === 'stock' ? undefined : 'none' }}>
           <StockTab canais={canais} />
+        </div>
+      )}
+
+      {/* ─── Tab Stock Baixo (abaixo do mínimo) ──────────── */}
+      {stockBaixoJaAberto && (
+        <div style={{ display: tab === 'stockBaixo' ? undefined : 'none' }}>
+          <StockBaixoTab canais={canais} />
         </div>
       )}
     </div>

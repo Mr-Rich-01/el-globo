@@ -9,10 +9,13 @@ import { DadosRecibo } from '@/lib/recibo'
 
 interface Produto {
   id: string; nome: string; precoVenda: number; stockAtual: number
+  // Unidades vendáveis (inclui caixas do pai via auto-unboxing)
+  disponivel: number
   imagemUrl: string | null
   categoria: { id: string; nome: string; icone: string | null }
 }
-interface FichaTecnica { id: string; nome: string; precoVenda: number }
+// disponivel: limitado pelo ingrediente mais escasso; null = sem receita (sem limite)
+interface FichaTecnica { id: string; nome: string; precoVenda: number; disponivel: number | null }
 
 interface ItemCarrinho {
   tipo: 'produto' | 'ficha'; id: string; nome: string
@@ -55,7 +58,23 @@ export function BalcaoClient({ produtos, fichas, operador }: {
     (categoriaAtiva === 'Tudo' || categoriaAtiva === 'Fichas Técnicas')
   )
 
+  function qtdNoCarrinho(tipo: string, id: string) {
+    return carrinho.find(i => i.tipo === tipo && i.id === id)?.quantidade ?? 0
+  }
+
+  // null = sem limite (ficha sem receita)
+  function limiteDisponivel(tipo: string, id: string): number | null {
+    if (tipo === 'produto') return produtos.find(p => p.id === id)?.disponivel ?? null
+    return fichas.find(f => f.id === id)?.disponivel ?? null
+  }
+
+  function podeAdicionar(tipo: string, id: string) {
+    const limite = limiteDisponivel(tipo, id)
+    return limite === null || qtdNoCarrinho(tipo, id) < limite
+  }
+
   function adicionarAoCarrinho(tipo: 'produto' | 'ficha', id: string, nome: string, preco: number) {
+    if (!podeAdicionar(tipo, id)) return
     setCarrinho(prev => {
       const existente = prev.find(i => i.tipo === tipo && i.id === id)
       if (existente) return prev.map(i => i.tipo === tipo && i.id === id ? { ...i, quantidade: i.quantidade + 1 } : i)
@@ -64,6 +83,7 @@ export function BalcaoClient({ produtos, fichas, operador }: {
   }
 
   function ajustarQuantidade(tipo: string, id: string, delta: number) {
+    if (delta > 0 && !podeAdicionar(tipo, id)) return
     setCarrinho(prev => prev
       .map(i => i.tipo === tipo && i.id === id ? { ...i, quantidade: Math.max(0, i.quantidade + delta) } : i)
       .filter(i => i.quantidade > 0)
@@ -206,19 +226,35 @@ export function BalcaoClient({ produtos, fichas, operador }: {
               🍸 Fichas Técnicas (Bar)
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', marginBottom: '16px' }}>
-              {fichasFiltradas.map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => adicionarAoCarrinho('ficha', f.id, f.nome, f.precoVenda)}
-                  className="card card-hover"
-                  style={{ padding: '12px', textAlign: 'left', cursor: 'pointer', border: 'none', background: 'var(--color-bg-elevated)' }}
-                >
-                  <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>{f.nome}</div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-accent)' }}>
-                    MT {f.precoVenda.toFixed(2)}
-                  </div>
-                </button>
-              ))}
+              {fichasFiltradas.map(f => {
+                const esgotado = f.disponivel !== null && f.disponivel <= 0
+                const bloqueado = !podeAdicionar('ficha', f.id)
+                return (
+                  <button
+                    key={f.id}
+                    onClick={() => adicionarAoCarrinho('ficha', f.id, f.nome, f.precoVenda)}
+                    disabled={bloqueado}
+                    className="card card-hover"
+                    style={{
+                      padding: '12px', textAlign: 'left', border: 'none', background: 'var(--color-bg-elevated)',
+                      cursor: bloqueado ? 'not-allowed' : 'pointer',
+                      opacity: bloqueado ? 0.45 : 1,
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>{f.nome}</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-accent)' }}>
+                      MT {f.precoVenda.toFixed(2)}
+                    </div>
+                    {esgotado ? (
+                      <span className="badge badge-danger" style={{ marginTop: '4px' }}>Esgotado</span>
+                    ) : f.disponivel !== null && f.disponivel <= 5 && (
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-danger)', marginTop: '4px' }}>
+                        Restam {f.disponivel}
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           </>
         )}
@@ -226,13 +262,18 @@ export function BalcaoClient({ produtos, fichas, operador }: {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
           {produtosFiltrados.map(p => {
             const noCarrinho = carrinho.find(i => i.tipo === 'produto' && i.id === p.id)
+            const esgotado = p.disponivel <= 0
+            const bloqueado = !podeAdicionar('produto', p.id)
             return (
               <button
                 key={p.id}
                 onClick={() => adicionarAoCarrinho('produto', p.id, p.nome, p.precoVenda)}
+                disabled={bloqueado}
                 className="card card-hover"
                 style={{
-                  padding: '12px', textAlign: 'left', cursor: 'pointer', border: 'none',
+                  padding: '12px', textAlign: 'left', border: 'none',
+                  cursor: bloqueado ? 'not-allowed' : 'pointer',
+                  opacity: bloqueado ? 0.45 : 1,
                   background: noCarrinho ? 'var(--color-accent-muted)' : 'var(--color-bg-elevated)',
                   position: 'relative',
                 }}
@@ -262,6 +303,16 @@ export function BalcaoClient({ produtos, fichas, operador }: {
                 <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-accent)' }}>
                   MT {p.precoVenda.toFixed(2)}
                 </div>
+                {esgotado ? (
+                  <span className="badge badge-danger" style={{ marginTop: '4px' }}>Esgotado</span>
+                ) : (
+                  <div style={{
+                    fontSize: '11px', fontWeight: 700, marginTop: '4px',
+                    color: p.disponivel <= 5 ? 'var(--color-danger)' : 'var(--color-text-muted)',
+                  }}>
+                    {p.disponivel} disp.
+                  </div>
+                )}
               </button>
             )
           })}

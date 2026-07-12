@@ -133,15 +133,20 @@ function encontrarEndpoint(device: USBDeviceLike): { interfaceNumber: number; en
   return null
 }
 
-// Envia o recibo por WebUSB. Nunca lança — false = usar fallback.
-export async function imprimirViaWebUSB(dados: DadosRecibo, abrirGaveta: boolean): Promise<boolean> {
+// Envia texto cru (ESC/POS) por WebUSB. Nunca lança — false = usar fallback.
+export async function imprimirTextoViaWebUSB(texto: string, abrirGaveta = false): Promise<boolean> {
   try {
     const device = await obterImpressoraMemorizada()
     if (!device) return false
-    return await enviarBytesUSB(device, montarEscPos(gerarTextoRecibo(dados), { abrirGaveta }))
+    return await enviarBytesUSB(device, montarEscPos(texto, { abrirGaveta }))
   } catch {
     return false
   }
+}
+
+// Envia o recibo por WebUSB. Nunca lança — false = usar fallback.
+export async function imprimirViaWebUSB(dados: DadosRecibo, abrirGaveta: boolean): Promise<boolean> {
+  return imprimirTextoViaWebUSB(gerarTextoRecibo(dados), abrirGaveta)
 }
 
 // Talão de teste do botão de configuração

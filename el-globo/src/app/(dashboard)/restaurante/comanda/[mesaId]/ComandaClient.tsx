@@ -3,15 +3,21 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProntoAlert } from '@/components/ProntoAlert'
+import { gerarTextoConsulta } from '@/lib/recibo'
+import { imprimirTextoFisico } from '@/lib/imprimir-client'
 
 interface Produto {
   id: string; nome: string; precoVenda: number
+  stockAtual: number
+  // Unidades vendáveis (inclui caixas do pai via auto-unboxing)
+  disponivel: number
   categoria: { nome: string; icone: string | null; cor: string | null }
 }
-interface FichaTecnica { id: string; nome: string; precoVenda: number }
+// disponivel: limitado pelo ingrediente mais escasso; null = sem receita (sem limite)
+interface FichaTecnica { id: string; nome: string; precoVenda: number; disponivel: number | null }
 interface ItemPedido {
   id: string; quantidade: number; precoUnitario: number; notas: string | null; estadoKDS: string
-  produto: Produto | null; fichaTecnica: FichaTecnica | null
+  produto: { nome: string } | null; fichaTecnica: { nome: string } | null
 }
 interface Pedido {
   id: string; estado: string; criadoEm: Date
@@ -48,7 +54,23 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
     (categoriaAtiva === 'Tudo' || categoriaAtiva === 'Fichas Técnicas')
   )
 
+  function qtdNoCarrinho(tipo: string, id: string) {
+    return carrinho.find(i => i.tipo === tipo && i.id === id)?.quantidade ?? 0
+  }
+
+  // null = sem limite (ficha sem receita)
+  function limiteDisponivel(tipo: string, id: string): number | null {
+    if (tipo === 'produto') return produtos.find(p => p.id === id)?.disponivel ?? null
+    return fichas.find(f => f.id === id)?.disponivel ?? null
+  }
+
+  function podeAdicionar(tipo: string, id: string) {
+    const limite = limiteDisponivel(tipo, id)
+    return limite === null || qtdNoCarrinho(tipo, id) < limite
+  }
+
   function adicionarAoCarrinho(tipo: 'produto' | 'ficha', id: string, nome: string, preco: number) {
+    if (!podeAdicionar(tipo, id)) return
     setCarrinho(prev => {
       const existente = prev.find(i => i.tipo === tipo && i.id === id)
       if (existente) return prev.map(i => i.tipo === tipo && i.id === id ? { ...i, quantidade: i.quantidade + 1 } : i)
@@ -61,6 +83,7 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
   }
 
   function ajustarQuantidade(tipo: string, id: string, delta: number) {
+    if (delta > 0 && !podeAdicionar(tipo, id)) return
     setCarrinho(prev => prev
       .map(i => i.tipo === tipo && i.id === id ? { ...i, quantidade: Math.max(0, i.quantidade + delta) } : i)
       .filter(i => i.quantidade > 0)
@@ -121,6 +144,32 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
   const totalMesa = mesa.pedidos
     .flatMap(p => p.itens)
     .reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0)
+
+  const [imprimindoConsulta, setImprimindoConsulta] = useState(false)
+
+  // Pré-conta para o cliente conferir — só leitura: não fecha a mesa,
+  // não gera Venda nem altera o estado dos pedidos
+  async function imprimirConsulta() {
+    if (mesa.pedidos.length === 0 || imprimindoConsulta) return
+    setImprimindoConsulta(true)
+    try {
+      const itens = mesa.pedidos.flatMap(p => p.itens.map(i => ({
+        nome: i.produto?.nome ?? i.fichaTecnica?.nome ?? 'Item',
+        quantidade: i.quantidade,
+        precoUnitario: i.precoUnitario,
+      })))
+      const texto = gerarTextoConsulta({
+        mesaLabel: `Mesa ${mesa.numero}${mesa.nome ? ` — ${mesa.nome}` : ''}`,
+        criadoEm: new Date(),
+        itens,
+        total: totalMesa,
+      })
+      const via = await imprimirTextoFisico(texto)
+      if (via === 'nenhuma') alert('Impressora não disponível — emparelhe a impressora USB ou verifique a impressora de rede.')
+    } finally {
+      setImprimindoConsulta(false)
+    }
+  }
 
   return (
     <div className="split-layout">
@@ -183,19 +232,35 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
                   🍸 Fichas Técnicas (Bar)
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px', marginBottom: '16px' }}>
-                  {fichasFiltradas.map(f => (
-                    <button
-                      key={f.id}
-                      onClick={() => adicionarAoCarrinho('ficha', f.id, f.nome, Number(f.precoVenda))}
-                      className="card card-hover"
-                      style={{ padding: '12px', textAlign: 'left', cursor: 'pointer', border: 'none', background: 'var(--color-bg-elevated)' }}
-                    >
-                      <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>{f.nome}</div>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-accent)' }}>
-                        MT {Number(f.precoVenda).toFixed(2)}
-                      </div>
-                    </button>
-                  ))}
+                  {fichasFiltradas.map(f => {
+                    const esgotado = f.disponivel !== null && f.disponivel <= 0
+                    const bloqueado = !podeAdicionar('ficha', f.id)
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => adicionarAoCarrinho('ficha', f.id, f.nome, Number(f.precoVenda))}
+                        disabled={bloqueado}
+                        className="card card-hover"
+                        style={{
+                          padding: '12px', textAlign: 'left', border: 'none', background: 'var(--color-bg-elevated)',
+                          cursor: bloqueado ? 'not-allowed' : 'pointer',
+                          opacity: bloqueado ? 0.45 : 1,
+                        }}
+                      >
+                        <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>{f.nome}</div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-accent)' }}>
+                          MT {Number(f.precoVenda).toFixed(2)}
+                        </div>
+                        {esgotado ? (
+                          <span className="badge badge-danger" style={{ marginTop: '4px' }}>Esgotado</span>
+                        ) : f.disponivel !== null && f.disponivel <= 5 && (
+                          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-danger)', marginTop: '4px' }}>
+                            Restam {f.disponivel}
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               </>
             )}
@@ -204,13 +269,18 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
               {produtosFiltrados.map(p => {
                 const noCarrinho = carrinho.find(i => i.tipo === 'produto' && i.id === p.id)
+                const esgotado = p.disponivel <= 0
+                const bloqueado = !podeAdicionar('produto', p.id)
                 return (
                   <button
                     key={p.id}
                     onClick={() => adicionarAoCarrinho('produto', p.id, p.nome, Number(p.precoVenda))}
+                    disabled={bloqueado}
                     className="card card-hover"
                     style={{
-                      padding: '12px', textAlign: 'left', cursor: 'pointer', border: 'none',
+                      padding: '12px', textAlign: 'left', border: 'none',
+                      cursor: bloqueado ? 'not-allowed' : 'pointer',
+                      opacity: bloqueado ? 0.45 : 1,
                       background: noCarrinho ? 'var(--color-accent-muted)' : 'var(--color-bg-elevated)',
                       borderColor: noCarrinho ? 'var(--color-accent)' : undefined,
                       position: 'relative',
@@ -234,6 +304,16 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
                     <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-accent)' }}>
                       MT {Number(p.precoVenda).toFixed(2)}
                     </div>
+                    {esgotado ? (
+                      <span className="badge badge-danger" style={{ marginTop: '4px' }}>Esgotado</span>
+                    ) : (
+                      <div style={{
+                        fontSize: '11px', fontWeight: 700, marginTop: '4px',
+                        color: p.disponivel <= 5 ? 'var(--color-danger)' : 'var(--color-text-muted)',
+                      }}>
+                        {p.disponivel} disp.
+                      </div>
+                    )}
                   </button>
                 )
               })}
@@ -360,6 +440,14 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
             style={{ width: '100%', justifyContent: 'center' }}
           >
             {isPending ? <><div className="spinner" style={{ width: '16px', height: '16px' }} /> A enviar...</> : '📤 Enviar para Cozinha/Bar'}
+          </button>
+          <button
+            onClick={imprimirConsulta}
+            disabled={mesa.pedidos.length === 0 || imprimindoConsulta}
+            className="btn btn-secondary"
+            style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}
+          >
+            {imprimindoConsulta ? 'A imprimir...' : '🖨️ Imprimir Conta'}
           </button>
           <button
             onClick={() => router.push(`/restaurante/checkout/${mesa.id}`)}

@@ -3,43 +3,10 @@ import { prisma } from '@/lib/prisma'
 import { redirect } from 'next/navigation'
 import { DashboardClient } from './DashboardClient'
 import { startOfDay, startOfMonth, endOfDay } from 'date-fns'
-import { stockAbaixoMinimo } from '@/lib/stock-alerta'
+import { linhasStockBaixo } from '@/lib/stock-baixo'
 
-// Conta linhas StockCanal abaixo do mínimo, avaliando o EQUIVALENTE TOTAL
-// da família caixa/unidade (caixas × fator + unidades) — um armazém cheio
-// de caixas não dispara alerta só porque há 0 unidades soltas.
 async function contarAlertasStock(): Promise<number> {
-  const linhas = await prisma.stockCanal.findMany({
-    where: { ativo: true, produto: { ativo: true } },
-    select: {
-      produtoId: true,
-      canal: true,
-      stockAtual: true,
-      stockMinimo: true,
-      produto: {
-        select: {
-          parentProductId: true,
-          fatorConversao: true,
-          filhos: { where: { ativo: true }, select: { id: true, fatorConversao: true } },
-        },
-      },
-    },
-  })
-
-  const porProdutoCanal = new Map(linhas.map(l => [`${l.produtoId}:${l.canal}`, Number(l.stockAtual)]))
-
-  return linhas.filter(l => {
-    const pai = l.produto.parentProductId
-    const filho = l.produto.filhos.find(f => f.fatorConversao)
-    return stockAbaixoMinimo({
-      stockAtual: Number(l.stockAtual),
-      stockMinimo: Number(l.stockMinimo),
-      stockPai: pai != null ? porProdutoCanal.get(`${pai}:${l.canal}`) ?? null : null,
-      fatorProprio: l.produto.fatorConversao,
-      stockFilho: filho ? porProdutoCanal.get(`${filho.id}:${l.canal}`) ?? null : null,
-      fatorFilho: filho?.fatorConversao ?? null,
-    })
-  }).length
+  return (await linhasStockBaixo()).length
 }
 
 export default async function DashboardPage() {

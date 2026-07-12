@@ -1,7 +1,7 @@
 'use client'
 
 import { DadosRecibo, gerarTextoRecibo } from '@/lib/recibo'
-import { suportaWebUSB, imprimirViaWebUSB } from '@/lib/printer'
+import { suportaWebUSB, imprimirViaWebUSB, imprimirTextoViaWebUSB } from '@/lib/printer'
 
 // Imprime o recibo com fallback em cadeia:
 //   1. WebUSB — impressora USB local emparelhada (silencioso, sem popup)
@@ -31,4 +31,27 @@ export async function imprimirReciboFisico(
 
   window.print()
   return 'browser'
+}
+
+// Imprime texto cru (ex.: consulta de mesa) sem fallback de browser —
+// os ecrãs que usam isto não têm componente @media print montado, e
+// imprimir a página inteira seria pior que nada. 'nenhuma' = avisar
+// o utilizador.
+export async function imprimirTextoFisico(texto: string): Promise<'webusb' | 'escpos' | 'nenhuma'> {
+  if (suportaWebUSB()) {
+    const ok = await imprimirTextoViaWebUSB(texto, false)
+    if (ok) return 'webusb'
+  }
+
+  try {
+    const res = await fetch('/api/imprimir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texto, abrirGaveta: false }),
+    })
+    const j = await res.json()
+    if (j.ok) return 'escpos'
+  } catch { /* sem impressora disponível */ }
+
+  return 'nenhuma'
 }

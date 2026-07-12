@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { semDecimais } from '@/lib/serializar'
 import { getSession } from '@/lib/auth'
 import { notFound } from 'next/navigation'
+import { disponibilidadeProduto, disponibilidadeFicha } from '@/lib/disponibilidade'
 import { ComandaClient } from './ComandaClient'
 
 export default async function ComandaPage({ params }: { params: Promise<{ mesaId: string }> }) {
@@ -36,6 +37,13 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
       include: {
         categoria: true,
         stockCanais: { where: { canal: 'RESTAURANTE', ativo: true } },
+        // Stock da caixa-pai no mesmo canal — o auto-unboxing da venda
+        // permite vender unidades enquanto houver caixas fechadas
+        parent: {
+          select: {
+            stockCanais: { where: { canal: 'RESTAURANTE', ativo: true }, select: { stockAtual: true } },
+          },
+        },
       },
       orderBy: [{ categoria: { nome: 'asc' } }, { nome: 'asc' }],
     }),
@@ -44,12 +52,18 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
   // Achatar preço/stock do canal RESTAURANTE no formato que o ComandaClient espera
   const produtosMapeados = produtos.map(p => {
     const sc = p.stockCanais[0]
-    const { stockCanais: _sc, ...resto } = p
+    const stockPai = p.parent?.stockCanais[0]
+    const { stockCanais: _sc, parent: _p, ...resto } = p
     return {
       ...resto,
       precoVenda: Number(sc.precoVenda),
       stockAtual: Number(sc.stockAtual),
       stockMinimo: Number(sc.stockMinimo),
+      disponivel: disponibilidadeProduto(
+        Number(sc.stockAtual),
+        stockPai ? Number(stockPai.stockAtual) : null,
+        p.fatorConversao,
+      ),
     }
   })
 
@@ -57,13 +71,36 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
 
   const fichas = await prisma.fichaTecnica.findMany({
     where: { ativo: true },
+    include: {
+      ingredientes: {
+        select: {
+          produtoId: true,
+          quantidade: true,
+          produto: {
+            select: {
+              stockCanais: { where: { canal: 'RESTAURANTE' }, select: { stockAtual: true } },
+            },
+          },
+        },
+      },
+    },
     orderBy: { nome: 'asc' },
   })
 
-  const fichasMapeadas = fichas.map(f => ({
-    ...f,
-    precoVenda: Number(f.precoVenda)
-  }))
+  const fichasMapeadas = fichas.map(f => {
+    const disp = disponibilidadeFicha(f.ingredientes.map(i => ({
+      produtoId: i.produtoId,
+      quantidade: Number(i.quantidade),
+      stockAtual: Number(i.produto.stockCanais[0]?.stockAtual ?? 0),
+    })))
+    const { ingredientes: _ing, ...resto } = f
+    return {
+      ...resto,
+      precoVenda: Number(f.precoVenda),
+      // Infinity (ficha sem receita) não sobrevive à serialização RSC
+      disponivel: Number.isFinite(disp) ? disp : null,
+    }
+  })
 
   return <ComandaClient mesa={semDecimais(mesa) as any} produtos={produtosMapeados as any} fichas={fichasMapeadas as any} role={session?.role ?? ''} />
 }
