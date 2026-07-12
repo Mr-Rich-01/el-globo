@@ -59,6 +59,7 @@ export default async function BalcaoPage() {
       id: p.id,
       nome: p.nome,
       imagemUrl: p.imagemUrl,
+      codigoBarras: p.codigoBarras,
       precoVenda: Number(sc.precoVenda),
       stockAtual: Number(sc.stockAtual),
       disponivel: disponibilidadeProduto(

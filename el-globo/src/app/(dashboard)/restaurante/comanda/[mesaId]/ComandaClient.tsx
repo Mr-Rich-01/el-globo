@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation'
 import { ProntoAlert } from '@/components/ProntoAlert'
 import { gerarTextoConsulta } from '@/lib/recibo'
 import { imprimirTextoFisico } from '@/lib/imprimir-client'
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
+import { ScanToast, useScanToast } from '@/components/ScanToast'
 
 interface Produto {
   id: string; nome: string; precoVenda: number
   stockAtual: number
   // Unidades vendáveis (inclui caixas do pai via auto-unboxing)
   disponivel: number
+  codigoBarras: string | null
   categoria: { nome: string; icone: string | null; cor: string | null }
 }
 // disponivel: limitado pelo ingrediente mais escasso; null = sem receita (sem limite)
@@ -89,6 +92,33 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
       .filter(i => i.quantidade > 0)
     )
   }
+
+  // ── Leitor de código de barras (scan → carrinho) ──────────────
+  const { msg: scanMsg, notificar: notificarScan } = useScanToast()
+
+  function processarScan(codigo: string) {
+    // O 1º caráter da rajada pode ter escapado para o campo de pesquisa antes
+    // da interceção — limpamos para não deixar resíduo a filtrar o catálogo.
+    setPesquisa('')
+    const produto = produtos.find(p => p.codigoBarras === codigo)
+    if (!produto) {
+      notificarScan('erro', `Código não reconhecido: ${codigo}`)
+      return
+    }
+    // Cruza com o helper de disponibilidade: bloqueia esgotado / acima do stock
+    if (!podeAdicionar('produto', produto.id)) {
+      notificarScan('erro', produto.disponivel <= 0
+        ? `${produto.nome} está esgotado!`
+        : `${produto.nome}: stock máximo atingido (${produto.disponivel})`)
+      return
+    }
+    adicionarAoCarrinho('produto', produto.id, produto.nome, Number(produto.precoVenda))
+    notificarScan('ok', `${produto.nome} adicionado`)
+    // Um bip enquanto vê os pedidos deve trazer o menu/carrinho à frente
+    if (abaAtiva !== 'menu') setAbaAtiva('menu')
+  }
+
+  useBarcodeScanner({ onScan: processarScan })
 
   const totalCarrinho = carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
 
@@ -175,6 +205,8 @@ export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mes
     <div className="split-layout">
       {/* Alerta em tempo real quando a cozinha marca um pedido como pronto */}
       <ProntoAlert />
+      {/* Feedback do leitor de código de barras */}
+      <ScanToast msg={scanMsg} />
       {/* Left: Menu */}
       <div className="split-main" style={{ padding: '20px' }}>
         {/* Header */}

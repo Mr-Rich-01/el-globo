@@ -6,12 +6,15 @@ import { ReciboTermico } from '@/components/ReciboTermico'
 import { ImpressoraConfig } from '@/components/ImpressoraConfig'
 import { imprimirReciboFisico } from '@/lib/imprimir-client'
 import { DadosRecibo } from '@/lib/recibo'
+import { useBarcodeScanner } from '@/hooks/useBarcodeScanner'
+import { ScanToast, useScanToast } from '@/components/ScanToast'
 
 interface Produto {
   id: string; nome: string; precoVenda: number; stockAtual: number
   // Unidades vendáveis (inclui caixas do pai via auto-unboxing)
   disponivel: number
   imagemUrl: string | null
+  codigoBarras: string | null
   categoria: { id: string; nome: string; icone: string | null }
 }
 // disponivel: limitado pelo ingrediente mais escasso; null = sem receita (sem limite)
@@ -89,6 +92,32 @@ export function BalcaoClient({ produtos, fichas, operador }: {
       .filter(i => i.quantidade > 0)
     )
   }
+
+  // ── Leitor de código de barras (scan → carrinho) ──────────────
+  const { msg: scanMsg, notificar: notificarScan } = useScanToast()
+
+  function processarScan(codigo: string) {
+    // O 1º caráter da rajada pode ter escapado para o campo de pesquisa antes
+    // da interceção — limpamos para não deixar resíduo a filtrar o catálogo.
+    setPesquisa('')
+    const produto = produtos.find(p => p.codigoBarras === codigo)
+    if (!produto) {
+      notificarScan('erro', `Código não reconhecido: ${codigo}`)
+      return
+    }
+    // Cruza com o helper de disponibilidade: bloqueia esgotado / acima do stock
+    if (!podeAdicionar('produto', produto.id)) {
+      notificarScan('erro', produto.disponivel <= 0
+        ? `${produto.nome} está esgotado!`
+        : `${produto.nome}: stock máximo atingido (${produto.disponivel})`)
+      return
+    }
+    adicionarAoCarrinho('produto', produto.id, produto.nome, produto.precoVenda)
+    notificarScan('ok', `${produto.nome} adicionado`)
+  }
+
+  // Desliga o scanner durante o overlay de sucesso (evita bips no ecrã final)
+  useBarcodeScanner({ onScan: processarScan, ativo: etapa === 'venda' })
 
   const totalCarrinho = carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
   const troco = Number(valorRecebido) - totalCarrinho
@@ -185,6 +214,9 @@ export function BalcaoClient({ produtos, fichas, operador }: {
     <div className="split-layout">
       {/* Recibo invisível — aparece apenas no @media print */}
       {recibo && <ReciboTermico dados={recibo} />}
+
+      {/* Feedback do leitor de código de barras */}
+      <ScanToast msg={scanMsg} />
 
       {/* ── Left: Produtos ─────────────────────────────── */}
       <div className="split-main" style={{ padding: '16px' }}>
