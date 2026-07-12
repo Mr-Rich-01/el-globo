@@ -182,6 +182,121 @@ export async function descontarProdutoComReceita(tx: Tx, opts: DescontarOpts): P
   return res
 }
 
+// Repõe stock de um produto num canal (estorno de cancelamento).
+// Espelho de descontarStockCanal sem guards: o estorno nunca falha.
+// - Replica a resolução de canal do desconto (fallback PISCINA → RESTAURANTE
+//   quando a linha da Piscina não existe ou está inativa) para o stock voltar
+//   ao canal de onde efetivamente saiu.
+// - Incrementa mesmo linhas inativas — a mercadoria volta onde está registada.
+// - Auto-unboxing não se reverte: as caixas desmanchadas ficam desmanchadas,
+//   a reposição é feita em unidades.
+async function reporStockCanal(tx: Tx, opts: {
+  produtoId: string
+  canal: CanalVenda
+  quantidade: number
+  userId: string
+  referencia: string
+}) {
+  let stockCanal = await tx.stockCanal.findUnique({
+    where: { produtoId_canal: { produtoId: opts.produtoId, canal: opts.canal } },
+  })
+  if ((!stockCanal || !stockCanal.ativo) && opts.canal === CanalVenda.PISCINA) {
+    const fallback = await tx.stockCanal.findUnique({
+      where: { produtoId_canal: { produtoId: opts.produtoId, canal: CanalVenda.RESTAURANTE } },
+    })
+    if (fallback) stockCanal = fallback
+  }
+  if (!stockCanal) {
+    stockCanal = await tx.stockCanal.upsert({
+      where: { produtoId_canal: { produtoId: opts.produtoId, canal: opts.canal } },
+      update: {},
+      create: { produtoId: opts.produtoId, canal: opts.canal, precoVenda: 0, stockAtual: 0 },
+    })
+  }
+
+  const depois = await tx.stockCanal.update({
+    where: { id: stockCanal.id },
+    data: { stockAtual: { increment: opts.quantidade } },
+  })
+
+  await tx.movimentacaoStock.create({
+    data: {
+      produtoId: opts.produtoId,
+      canal: stockCanal.canal,
+      tipo: 'ENTRADA_ESTORNO',
+      quantidade: opts.quantidade,
+      stockAntes: Number(depois.stockAtual) - opts.quantidade,
+      stockDepois: depois.stockAtual,
+      referencia: opts.referencia,
+      userId: opts.userId,
+    },
+  })
+}
+
+// Estorna todo o stock consumido por um pedido cancelado (produtos e
+// ingredientes das fichas técnicas). A referencia do desconto original é
+// por mesa (`pedido-CANAL-mesaId`), não por pedido — por isso o estorno
+// itera os itens em vez de localizar as movimentações originais.
+export async function estornarStockPedido(tx: Tx, pedido: {
+  id: string
+  canal: CanalVenda
+  itens: {
+    produtoId: string | null
+    fichaTecnicaId: string | null
+    quantidade: Prisma.Decimal | number
+  }[]
+}, userId: string) {
+  const referencia = `estorno-pedido-${pedido.id}`
+
+  for (const item of pedido.itens) {
+    const quantidade = Number(item.quantidade)
+
+    if (item.produtoId) {
+      await reporStockCanal(tx, {
+        produtoId: item.produtoId,
+        canal: pedido.canal,
+        quantidade,
+        userId,
+        referencia,
+      })
+      // Mesma seleção de ficha que descontarProdutoComReceita — repõe os
+      // ingredientes que o desconto teria consumido.
+      const ficha = await tx.fichaTecnica.findFirst({
+        where: { produtoId: item.produtoId, ativo: true },
+        orderBy: { criadoEm: 'desc' },
+        include: { ingredientes: true },
+      })
+      if (ficha) {
+        for (const ing of ficha.ingredientes) {
+          await reporStockCanal(tx, {
+            produtoId: ing.produtoId,
+            canal: pedido.canal,
+            quantidade: Number(ing.quantidade) * quantidade,
+            userId,
+            referencia: `${referencia}:receita-${ficha.nome}`,
+          })
+        }
+      }
+    } else if (item.fichaTecnicaId) {
+      const ficha = await tx.fichaTecnica.findUnique({
+        where: { id: item.fichaTecnicaId },
+        include: { ingredientes: true },
+      })
+      if (ficha) {
+        for (const ing of ficha.ingredientes) {
+          await reporStockCanal(tx, {
+            produtoId: ing.produtoId,
+            canal: pedido.canal,
+            quantidade: Number(ing.quantidade) * quantidade,
+            userId,
+            referencia: `${referencia}:ficha-${ficha.nome}`,
+          })
+        }
+      }
+    }
+  }
+}
+
 // Regista uma quebra de stock: decremento condicional direto no canal
 // exato (sem auto-unboxing nem fallback de canal — a quebra é física e
 // aconteceu onde aconteceu), linha em `quebras` e movimentação

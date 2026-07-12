@@ -6,7 +6,9 @@ import { calcularEstadoAgregado } from '@/lib/preparo'
 import { z } from 'zod'
 
 const EstadoSchema = z.object({
-  estado: z.enum(['PENDENTE', 'EM_PREPARACAO', 'PRONTO', 'ENTREGUE', 'CANCELADO']),
+  // CANCELADO não passa por aqui — tem rota própria (POST /cancelar) com
+  // RBAC de gestor e estorno de stock.
+  estado: z.enum(['PENDENTE', 'EM_PREPARACAO', 'PRONTO', 'ENTREGUE']),
   // Quando presente, o estado aplica-se apenas aos itens dessa secção
   // (KDS marca a COZINHA, BDS marca o BAR) e o estado do pedido passa a
   // ser o agregado: PRONTO só quando Cozinha E Bar terminaram.
@@ -81,7 +83,7 @@ export async function PATCH(
       return NextResponse.json({ ok: true, pedido })
     }
 
-    // ── Atualização global do pedido (ENTREGUE, CANCELADO, legado) ──
+    // ── Atualização global do pedido (ENTREGUE, legado) ──────────
     const pedido = await prisma.pedido.update({
       where: { id },
       data: {

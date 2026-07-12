@@ -25,8 +25,9 @@ interface Mesa {
 
 interface ItemCarrinho { tipo: 'produto' | 'ficha'; id: string; nome: string; preco: number; quantidade: number; notas: string }
 
-export function ComandaClient({ mesa, produtos, fichas }: { mesa: Mesa; produtos: Produto[]; fichas: FichaTecnica[] }) {
+export function ComandaClient({ mesa, produtos, fichas, role = '' }: { mesa: Mesa; produtos: Produto[]; fichas: FichaTecnica[]; role?: string }) {
   const router = useRouter()
+  const podeCancelar = role === 'ADMIN' || role === 'GERENTE'
   const [isPending, startTransition] = useTransition()
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([])
   const [pesquisa, setPesquisa] = useState('')
@@ -100,6 +101,19 @@ export function ComandaClient({ mesa, produtos, fichas }: { mesa: Mesa; produtos
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado: 'ENTREGUE' }),
       })
+      router.refresh()
+    })
+  }
+
+  function cancelarPedido(pedidoId: string) {
+    if (!confirm('Cancelar este pedido? O stock será reposto.')) return
+    startTransition(async () => {
+      const res = await fetch(`/api/pedidos/${pedidoId}/cancelar`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.erro ?? 'Erro ao cancelar pedido')
+        return
+      }
       router.refresh()
     })
   }
@@ -245,6 +259,16 @@ export function ComandaClient({ mesa, produtos, fichas }: { mesa: Mesa; produtos
                           onClick={() => entregarPedido(pedido.id)}
                         >
                           📦 Entregar
+                        </button>
+                      )}
+                      {podeCancelar && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--color-danger)' }}
+                          disabled={isPending}
+                          onClick={() => cancelarPedido(pedido.id)}
+                        >
+                          ❌ Cancelar
                         </button>
                       )}
                       <span className={`badge ${pedido.estado === 'PENDENTE' ? 'badge-warning' : pedido.estado === 'PRONTO' || pedido.estado === 'ENTREGUE' ? 'badge-success' : 'badge-info'}`}>

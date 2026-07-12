@@ -124,6 +124,19 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
     })
   }
 
+  function cancelarPedido(pedidoId: string) {
+    if (!confirm('Cancelar este pedido? O stock será reposto.')) return
+    startTransition(async () => {
+      const res = await fetch(`/api/pedidos/${pedidoId}/cancelar`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.erro ?? 'Erro ao cancelar pedido')
+        return
+      }
+      router.refresh()
+    })
+  }
+
   function handleMesaClick(mesa: MesaData) {
     if (mesa.estado === 'LIVRE') {
       // Abrir mesa e ir para comanda
@@ -319,6 +332,16 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
                         onClick={() => router.push(`/restaurante/checkout/pedido/${v.id}`)}
                       >
                         💳 Fechar Conta
+                      </button>
+                    )}
+                    {podeGerir && !v.pago && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--color-danger)' }}
+                        disabled={isPending}
+                        onClick={() => cancelarPedido(v.id)}
+                      >
+                        ❌ Cancelar
                       </button>
                     )}
                   </span>

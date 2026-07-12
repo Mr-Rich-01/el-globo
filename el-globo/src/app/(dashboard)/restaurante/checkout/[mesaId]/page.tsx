@@ -13,7 +13,7 @@ export default async function CheckoutMesaPage({ params }: { params: Promise<{ m
     where: { id: mesaId },
     include: {
       pedidos: {
-        where: { estado: { notIn: ['ENTREGUE', 'CANCELADO'] } },
+        where: { vendaId: null, estado: { not: 'CANCELADO' } },
         include: { itens: { include: { produto: true, fichaTecnica: true } } },
         orderBy: { criadoEm: 'asc' },
       },

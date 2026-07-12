@@ -5,6 +5,7 @@ export const MOTIVOS = {
   VENDA:         { label: 'Venda',         tipos: ['SAIDA_VENDA'] },
   COMPRA:        { label: 'Compra',        tipos: ['ENTRADA_COMPRA'] },
   QUEBRA:        { label: 'Quebra',        tipos: ['SAIDA_QUEBRA'] },
+  ESTORNO:       { label: 'Estorno',       tipos: ['ENTRADA_ESTORNO'] },
   AJUSTE:        { label: 'Ajuste',        tipos: ['ENTRADA_AJUSTE', 'SAIDA_AJUSTE'] },
   DESMANCHE:     { label: 'Desmanche',     tipos: ['SAIDA_DESMANCHE', 'ENTRADA_DESMANCHE'] },
   TRANSFERENCIA: { label: 'Transferência', tipos: ['SAIDA_TRANSFERENCIA', 'ENTRADA_TRANSFERENCIA'] },

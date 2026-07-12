@@ -1,10 +1,12 @@
 import { prisma } from '@/lib/prisma'
 import { semDecimais } from '@/lib/serializar'
+import { getSession } from '@/lib/auth'
 import { notFound } from 'next/navigation'
 import { ComandaClient } from './ComandaClient'
 
 export default async function ComandaPage({ params }: { params: Promise<{ mesaId: string }> }) {
   const { mesaId } = await params
+  const session = await getSession()
 
   const [mesa, produtos] = await Promise.all([
     prisma.mesa.findUnique({
@@ -63,5 +65,5 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
     precoVenda: Number(f.precoVenda)
   }))
 
-  return <ComandaClient mesa={semDecimais(mesa) as any} produtos={produtosMapeados as any} fichas={fichasMapeadas as any} />
+  return <ComandaClient mesa={semDecimais(mesa) as any} produtos={produtosMapeados as any} fichas={fichasMapeadas as any} role={session?.role ?? ''} />
 }
