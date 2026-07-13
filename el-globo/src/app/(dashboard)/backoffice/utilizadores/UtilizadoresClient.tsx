@@ -137,8 +137,8 @@ export function UtilizadoresClient() {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}><div className="spinner" /></div>
       ) : (
-        <div className="card" style={{ overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <div className="card table-scroll">
+          <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
                 <th style={{ padding: '12px 16px', fontWeight: 700 }}>Nome</th>

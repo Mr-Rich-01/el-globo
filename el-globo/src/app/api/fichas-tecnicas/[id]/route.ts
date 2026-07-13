@@ -7,7 +7,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession()
-  if (!session || !['ADMIN'].includes(session.role)) {
+  if (!session || !['ADMIN', 'GESTOR_STOCK'].includes(session.role)) {
     return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
   }
 

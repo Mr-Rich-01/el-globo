@@ -164,8 +164,8 @@ export function QuebrasClient({ canais }: Props) {
           Sem quebras registadas{filtroCanal ? ' neste canal' : ''}.
         </div>
       ) : (
-        <div className="card" style={{ overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <div className="card table-scroll">
+          <table style={{ width: '100%', minWidth: '720px', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
                 <th style={{ padding: '12px 16px', fontWeight: 700 }}>Produto</th>

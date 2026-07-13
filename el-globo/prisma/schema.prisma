@@ -24,6 +24,10 @@ enum Role {
   OPERADOR_BALCAO
   OPERADOR_BOTTLESTORE
   COZINHEIRO
+  // Gestor de inventário — acesso exclusivo à área de Stock (produtos,
+  // categorias, fichas técnicas, quebras e relatório de stock baixo).
+  // Sem acesso a vendas, caixas, mesas, abas ou dashboards financeiros.
+  GESTOR_STOCK
 }
 
 enum CanalVenda {

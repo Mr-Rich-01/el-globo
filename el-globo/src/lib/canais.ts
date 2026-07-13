@@ -15,7 +15,8 @@ const TODOS_CANAIS: CanalVenda[] = ['RESTAURANTE', 'BOTTLESTORE', 'PISCINA']
 // A Piscina é servida pelo pessoal do restaurante, por isso o canal
 // RESTAURANTE inclui acesso à PISCINA. A Bottlestore é totalmente isolada.
 export function canaisPermitidos(session: SessaoCanal): CanalVenda[] {
-  if (session.role === 'ADMIN') return TODOS_CANAIS
+  // ADMIN (dono) e GESTOR_STOCK (inventário central) veem todos os canais.
+  if (session.role === 'ADMIN' || session.role === 'GESTOR_STOCK') return TODOS_CANAIS
   if (!session.canal) return [] // token antigo ou utilizador mal configurado
   if (session.canal === 'RESTAURANTE') return ['RESTAURANTE', 'PISCINA']
   return [session.canal]

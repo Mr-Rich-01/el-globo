@@ -67,7 +67,7 @@ export const PERMISSIONS = {
     'bottlestore:view', 'bottlestore:manage',
     'piscina:view', 'piscina:manage',
     'stock:view', 'stock:manage',
-    'relatorios:view', 'caixa:view', 'caixa:manage',
+    'relatorios:view', 'relatorios:stock-baixo', 'caixa:view', 'caixa:manage',
     'utilizadores:view', 'utilizadores:manage',
     'kds:view',
   ],
@@ -77,9 +77,15 @@ export const PERMISSIONS = {
     'bottlestore:view', 'bottlestore:manage',
     'piscina:view', 'piscina:manage',
     'stock:view', 'stock:manage',
-    'relatorios:view', 'caixa:view', 'caixa:manage',
+    'relatorios:view', 'relatorios:stock-baixo', 'caixa:view', 'caixa:manage',
     'utilizadores:view',
     'kds:view',
+  ],
+  // Gestor de inventário: CRUD de stock e apenas o relatório de stock
+  // baixo. Sem 'relatorios:view' — não vê a BI de vendas nem o ledger.
+  GESTOR_STOCK: [
+    'stock:view', 'stock:manage',
+    'relatorios:stock-baixo',
   ],
   EMPREGADO_MESA: [
     'restaurante:view',
@@ -113,6 +119,7 @@ export const REDIRECT_BY_ROLE: Record<Role, string> = {
   OPERADOR_BALCAO: '/restaurante/mesas',
   OPERADOR_BOTTLESTORE: '/bottlestore/pos',
   COZINHEIRO: '/restaurante/kds',
+  GESTOR_STOCK: '/stock/produtos',
 }
 
 // Scoping por canal (multi-gestor) — vive em lib/canais.ts porque é

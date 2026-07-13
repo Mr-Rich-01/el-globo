@@ -31,7 +31,7 @@ const CategoriaCreateSchema = z.object({
 
 export async function POST(request: NextRequest) {
   const session = await getSession()
-  if (!session || !['ADMIN', 'GERENTE'].includes(session.role)) {
+  if (!session || !['ADMIN', 'GERENTE', 'GESTOR_STOCK'].includes(session.role)) {
     return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
   }
 

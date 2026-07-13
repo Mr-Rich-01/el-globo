@@ -21,7 +21,7 @@ const QuebraSchema = z.object({
 export async function GET(request: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
-  if (!['ADMIN', 'GERENTE'].includes(session.role)) {
+  if (!['ADMIN', 'GERENTE', 'GESTOR_STOCK'].includes(session.role)) {
     return NextResponse.json({ erro: 'Sem permissão para ver quebras' }, { status: 403 })
   }
 
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
-  if (!['ADMIN', 'GERENTE'].includes(session.role)) {
+  if (!['ADMIN', 'GERENTE', 'GESTOR_STOCK'].includes(session.role)) {
     return NextResponse.json({ erro: 'Sem permissão para registar quebras' }, { status: 403 })
   }
 

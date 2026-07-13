@@ -142,7 +142,7 @@ export function RelatoriosClient({ canais }: Props) {
       </div>
 
       {/* ─── Tabs ────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
         <button
           className={`btn btn-sm ${tab === 'vendas' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setTab('vendas')}
@@ -292,7 +292,7 @@ export function RelatoriosClient({ canais }: Props) {
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>Sem dados.</p>
               ) : (
                 <div className="table-scroll">
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <table style={{ width: '100%', minWidth: '360px', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
                       <th style={{ padding: '8px 4px', fontWeight: 700 }}>Produto</th>
@@ -323,7 +323,7 @@ export function RelatoriosClient({ canais }: Props) {
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>Sem dados.</p>
               ) : (
                 <div className="table-scroll">
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <table style={{ width: '100%', minWidth: '440px', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
                       <th style={{ padding: '8px 4px', fontWeight: 700 }}>Operador</th>
@@ -354,7 +354,7 @@ export function RelatoriosClient({ canais }: Props) {
                 <p style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>Sem quebras no período. 👍</p>
               ) : (
                 <div className="table-scroll">
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <table style={{ width: '100%', minWidth: '440px', borderCollapse: 'collapse', fontSize: '13px' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
                       <th style={{ padding: '8px 4px', fontWeight: 700 }}>Produto</th>

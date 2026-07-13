@@ -86,8 +86,8 @@ export function ProdutosClient({ role, canais }: Props) {
   const imagemInputRef = useRef<HTMLInputElement>(null)
 
   // Ações de stock (desmanche / transferência)
-  const podeGerirStock = role === 'ADMIN' || role === 'GERENTE'
-  const podeTransferir = role === 'ADMIN' || role === 'GERENTE'
+  const podeGerirStock = role === 'ADMIN' || role === 'GERENTE' || role === 'GESTOR_STOCK'
+  const podeTransferir = role === 'ADMIN' || role === 'GERENTE' || role === 'GESTOR_STOCK'
   const [desmanche, setDesmanche] = useState<DesmancheState | null>(null)
   const [transferencia, setTransferencia] = useState<TransferenciaState | null>(null)
   const [entrada, setEntrada] = useState<EntradaState | null>(null)
@@ -484,8 +484,8 @@ export function ProdutosClient({ role, canais }: Props) {
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}><div className="spinner" /></div>
       ) : (
-        <div className="card" style={{ overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+        <div className="card table-scroll">
+          <table style={{ width: '100%', minWidth: '820px', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border-strong)', textAlign: 'left' }}>
                 <th style={{ padding: '12px 16px', fontWeight: 700 }}>Produto</th>

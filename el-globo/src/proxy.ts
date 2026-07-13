@@ -47,6 +47,29 @@ export async function proxy(request: NextRequest) {
     return response
   }
 
+  // GESTOR_STOCK — perfil de inventário puro. Fica preso à área de Stock:
+  // qualquer página fora de /stock volta aos produtos, e as APIs fora do
+  // inventário respondem 403. Assim não toca em vendas, caixas, mesas,
+  // abas nem dashboards financeiros, mesmo por URL direto.
+  if (role === 'GESTOR_STOCK') {
+    const API_STOCK_PERMITIDAS = [
+      '/api/produtos',
+      '/api/categorias',
+      '/api/fichas-tecnicas',
+      '/api/quebras',
+      '/api/stock',
+      '/api/relatorios/stock-baixo',
+      '/api/auth/logout',
+    ]
+    if (pathname.startsWith('/api')) {
+      if (!API_STOCK_PERMITIDAS.some((p) => pathname.startsWith(p))) {
+        return NextResponse.json({ erro: 'Sem permissão' }, { status: 403 })
+      }
+    } else if (pathname !== '/' && !pathname.startsWith('/stock')) {
+      return NextResponse.redirect(new URL(REDIRECT_BY_ROLE[role], request.url))
+    }
+  }
+
   // Bloqueio por CANAL: o gestor da Bottlestore não entra nas rotas do
   // restaurante/piscina nem por URL direto, e vice-versa.
   const permitidos = canaisPermitidos(session)

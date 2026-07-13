@@ -34,10 +34,11 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/piscina/abas', label: 'Abas Piscina', icon: '🏊', roles: ['ADMIN', 'GERENTE', 'EMPREGADO_MESA'], canal: 'PISCINA', section: 'Piscina' },
 
   // Stock
-  { href: '/stock/produtos', label: 'Produtos', icon: '📦', roles: ['ADMIN', 'GERENTE', 'OPERADOR_BOTTLESTORE'], section: 'Stock' },
-  { href: '/stock/fichas-tecnicas', label: 'Fichas Técnicas', icon: '📋', roles: ['ADMIN', 'GERENTE'], canal: 'RESTAURANTE', section: 'Stock' },
-  { href: '/stock/categorias', label: 'Categorias', icon: '🏷️', roles: ['ADMIN', 'GERENTE'], section: 'Stock' },
-  { href: '/stock/quebras', label: 'Quebras', icon: '🗑️', roles: ['ADMIN', 'GERENTE'], section: 'Stock' },
+  { href: '/stock/produtos', label: 'Produtos', icon: '📦', roles: ['ADMIN', 'GERENTE', 'OPERADOR_BOTTLESTORE', 'GESTOR_STOCK'], section: 'Stock' },
+  { href: '/stock/fichas-tecnicas', label: 'Fichas Técnicas', icon: '📋', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], canal: 'RESTAURANTE', section: 'Stock' },
+  { href: '/stock/categorias', label: 'Categorias', icon: '🏷️', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], section: 'Stock' },
+  { href: '/stock/quebras', label: 'Quebras', icon: '🗑️', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], section: 'Stock' },
+  { href: '/stock/stock-baixo', label: 'Stock Baixo', icon: '⚠️', roles: ['ADMIN', 'GESTOR_STOCK'], section: 'Stock' },
 
   // Backoffice
   { href: '/backoffice/relatorios', label: 'Relatórios', icon: '📈', roles: ['ADMIN', 'GERENTE'], section: 'Backoffice' },

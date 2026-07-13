@@ -149,40 +149,6 @@ export default function LoginPage() {
               ) : 'Entrar no Sistema'}
             </button>
           </form>
-
-          {/* Role hints */}
-          <div style={{
-            marginTop: '28px', padding: '16px',
-            background: 'rgba(255,255,255,0.02)', borderRadius: '10px',
-            border: '1px solid var(--color-border)',
-          }}>
-            <p style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '8px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Credenciais de Demonstração
-            </p>
-            {[
-              { role: 'Admin', email: 'admin@elglobo.com' },
-              { role: 'Empregado', email: 'mesa@elglobo.com' },
-              { role: 'Bottlestore', email: 'bottlestore@elglobo.com' },
-              { role: 'Cozinheiro', email: 'cozinha@elglobo.com' },
-            ].map(({ role, email: demoEmail }) => (
-              <button
-                key={demoEmail}
-                type="button"
-                onClick={() => { setEmail(demoEmail); setSenha('elglobo123') }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  padding: '4px 0', background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--color-text-secondary)', fontSize: '12px',
-                  transition: 'color 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-accent)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-secondary)')}
-              >
-                <span style={{ color: 'var(--color-text-muted)' }}>→</span>{' '}
-                <strong>{role}</strong>: {demoEmail}
-              </button>
-            ))}
-          </div>
         </div>
 
         <p style={{ textAlign: 'center', fontSize: '12px', color: 'var(--color-text-muted)', marginTop: '24px' }}>

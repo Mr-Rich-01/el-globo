@@ -10,7 +10,7 @@ export const metadata = {
 export default async function CategoriasPage() {
   const session = await getSession()
   if (!session) redirect('/login')
-  if (!['ADMIN', 'GERENTE'].includes(session.role)) redirect('/stock/produtos')
+  if (!['ADMIN', 'GERENTE', 'GESTOR_STOCK'].includes(session.role)) redirect('/stock/produtos')
 
   const categorias = await prisma.categoria.findMany({
     where: { ativo: true },

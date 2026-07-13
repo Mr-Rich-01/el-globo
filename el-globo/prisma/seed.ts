@@ -138,6 +138,20 @@ async function main() {
     },
   })
 
+  // Gestor de inventário — global (vê o stock de todos os canais), mas
+  // sem acesso a vendas, caixas, mesas, abas nem dashboards financeiros.
+  await prisma.user.upsert({
+    where: { email: 'gestor@elglobo.com' },
+    update: { role: Role.GESTOR_STOCK, canal: null },
+    create: {
+      nome: 'Gestor de Stock',
+      email: 'gestor@elglobo.com',
+      senha: senhaHash,
+      role: Role.GESTOR_STOCK,
+      canal: null,
+    },
+  })
+
   console.log('✅ Utilizadores criados (admin global + gestores por canal)')
 
   // ─── Categorias ─────────────────────────────────────────────
@@ -441,6 +455,7 @@ async function main() {
   console.log('  Operador Balcão:       balcao@elglobo.com / elglobo123')
   console.log('  Operador Bottlestore:  bottlestore@elglobo.com / elglobo123')
   console.log('  Cozinheiro:            cozinha@elglobo.com / elglobo123')
+  console.log('  Gestor de Stock:       gestor@elglobo.com / elglobo123')
   console.log('')
 }
 

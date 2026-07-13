@@ -11,7 +11,12 @@ import { linhasStockBaixo } from '@/lib/stock-baixo'
 export async function GET(request: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
-  if (!hasPermission(session.role, 'relatorios:view')) {
+  // ADMIN/GERENTE têm 'relatorios:view'; o GESTOR_STOCK tem só o
+  // 'relatorios:stock-baixo' — ambos podem consultar a reposição.
+  if (
+    !hasPermission(session.role, 'relatorios:view') &&
+    !hasPermission(session.role, 'relatorios:stock-baixo')
+  ) {
     return NextResponse.json({ erro: 'Sem permissão para ver relatórios' }, { status: 403 })
   }
 
