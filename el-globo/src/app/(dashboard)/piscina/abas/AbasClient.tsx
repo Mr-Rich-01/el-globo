@@ -223,7 +223,7 @@ export function AbasClient({ abas: abasIniciais }: { abas: Aba[] }) {
             {/* Ações */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <button
-                onClick={() => router.push(`/restaurante/comanda-aba/${abaDetalhe.id}`)}
+                onClick={() => router.push(`/piscina/comanda/${abaDetalhe.id}`)}
                 className="btn btn-secondary"
                 style={{ justifyContent: 'center' }}
               >
