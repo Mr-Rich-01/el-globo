@@ -459,7 +459,7 @@ export function ProdutosClient({ role, canais }: Props) {
   const subcategoriasDoGrupo = categorias.filter(c => c.parentCategoryId === form.grupoId)
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px' }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800 }}>📦 Produtos & Stock por Canal</h1>
@@ -535,20 +535,23 @@ export function ProdutosClient({ role, canais }: Props) {
                       </td>
                     )
                   })}
+                  {/* Slots fixos: cada linha rende o MESMO conjunto de botões
+                      (os não aplicáveis ficam visibility:hidden a ocupar o
+                      espaço) para as ações alinharem em colunas verticais */}
                   <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {podeGerirStock && p.stockCanais.length > 0 && (
-                      <>
-                        <button onClick={() => abrirEntrada(p)} className="btn btn-ghost btn-sm" title="Registar entrada de stock (compra/reposição)" style={{ color: 'var(--color-success, #10b981)' }}>➕ Entrada</button>
-                        <button onClick={() => abrirSaida(p)} className="btn btn-ghost btn-sm" title="Registar saída manual (quebra/ajuste)" style={{ color: 'var(--color-danger)' }}>➖ Saída</button>
-                      </>
-                    )}
-                    {podeGerirStock && p.filhos.some(f => f.fatorConversao) && (
-                      <button onClick={() => abrirDesmanche(p)} className="btn btn-ghost btn-sm" title="Desmanchar caixa em unidades">📦 Desmanchar</button>
-                    )}
-                    {podeTransferir && canais.length >= 2 && p.stockCanais.length > 0 && (
-                      <button onClick={() => abrirTransferencia(p)} className="btn btn-ghost btn-sm" title="Transferir stock entre canais">🔁 Transferir</button>
-                    )}
-                    <button onClick={() => abrirEdicao(p)} className="btn btn-ghost btn-sm">✏️ Editar</button>
+                    <span style={{ display: 'inline-flex', gap: '4px', justifyContent: 'flex-end' }}>
+                      {podeGerirStock && (
+                        <>
+                          <button onClick={() => abrirDesmanche(p)} className="btn btn-ghost btn-sm" title="Desmanchar caixa em unidades" style={{ visibility: p.filhos.some(f => f.fatorConversao) ? undefined : 'hidden' }}>📦 Desmanchar</button>
+                          <button onClick={() => abrirEntrada(p)} className="btn btn-ghost btn-sm" title="Registar entrada de stock (compra/reposição)" style={{ color: 'var(--color-success, #10b981)', visibility: p.stockCanais.length > 0 ? undefined : 'hidden' }}>➕ Entrada</button>
+                          <button onClick={() => abrirSaida(p)} className="btn btn-ghost btn-sm" title="Registar saída manual (quebra/ajuste)" style={{ color: 'var(--color-danger)', visibility: p.stockCanais.length > 0 ? undefined : 'hidden' }}>➖ Saída</button>
+                        </>
+                      )}
+                      {podeTransferir && canais.length >= 2 && (
+                        <button onClick={() => abrirTransferencia(p)} className="btn btn-ghost btn-sm" title="Transferir stock entre canais" style={{ visibility: p.stockCanais.length > 0 ? undefined : 'hidden' }}>🔁 Transferir</button>
+                      )}
+                      <button onClick={() => abrirEdicao(p)} className="btn btn-ghost btn-sm">✏️ Editar</button>
+                    </span>
                   </td>
                 </tr>
               ))}

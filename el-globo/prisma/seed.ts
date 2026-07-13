@@ -138,17 +138,18 @@ async function main() {
     },
   })
 
-  // Gestor de inventário — global (vê o stock de todos os canais), mas
-  // sem acesso a vendas, caixas, mesas, abas nem dashboards financeiros.
+  // Gestor de inventário POR CANAL — vê apenas o stock do seu canal
+  // (RESTAURANTE inclui PISCINA), sem acesso a vendas, caixas, mesas,
+  // abas nem dashboards financeiros.
   await prisma.user.upsert({
     where: { email: 'gestor@elglobo.com' },
-    update: { role: Role.GESTOR_STOCK, canal: null },
+    update: { role: Role.GESTOR_STOCK, canal: CanalVenda.RESTAURANTE },
     create: {
       nome: 'Gestor de Stock',
       email: 'gestor@elglobo.com',
       senha: senhaHash,
       role: Role.GESTOR_STOCK,
-      canal: null,
+      canal: CanalVenda.RESTAURANTE,
     },
   })
 

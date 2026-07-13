@@ -49,7 +49,7 @@ export function DashboardClient({
   }))
 
   return (
-    <div style={{ padding: '32px', maxWidth: '1400px' }}>
+    <div style={{ padding: '32px' }}>
       {/* Header */}
       <div style={{ marginBottom: '32px' }}>
         <p style={{ fontSize: '13px', color: 'var(--color-text-muted)', marginBottom: '4px' }}>

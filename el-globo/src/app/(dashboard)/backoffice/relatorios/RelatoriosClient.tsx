@@ -128,7 +128,7 @@ export function RelatoriosClient({ canais }: Props) {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px' }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800 }}>📈 Relatórios & BI</h1>
@@ -260,7 +260,7 @@ export function RelatoriosClient({ canais }: Props) {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: '20px', marginBottom: '20px' }}>
             {/* ─── Por canal ─────────────────────────────── */}
             <div className="card" style={{ padding: '20px' }}>
               <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '16px' }}>🏪 Faturamento por Canal</h3>
@@ -315,7 +315,7 @@ export function RelatoriosClient({ canais }: Props) {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: '20px' }}>
             {/* ─── Por operador ──────────────────────────── */}
             <div className="card" style={{ padding: '20px' }}>
               <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '16px' }}>👤 Volume por Operador / Garçom</h3>

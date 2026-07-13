@@ -120,7 +120,7 @@ export function QuebrasClient({ canais }: Props) {
   const canalCfg = (c: Canal | null) => CANAIS.find(x => x.id === c)
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px' }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800 }}>🗑️ Quebras de Stock</h1>

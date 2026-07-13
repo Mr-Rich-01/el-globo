@@ -20,7 +20,7 @@ export default async function StockBaixoPage() {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px' }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ marginBottom: '20px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 800 }}>⚠️ Stock Baixo</h1>
         <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px', marginTop: '4px' }}>

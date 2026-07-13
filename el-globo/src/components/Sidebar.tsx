@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Menu, X } from 'lucide-react'
@@ -38,7 +38,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/stock/fichas-tecnicas', label: 'Fichas Técnicas', icon: '📋', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], canal: 'RESTAURANTE', section: 'Stock' },
   { href: '/stock/categorias', label: 'Categorias', icon: '🏷️', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], section: 'Stock' },
   { href: '/stock/quebras', label: 'Quebras', icon: '🗑️', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], section: 'Stock' },
-  { href: '/stock/stock-baixo', label: 'Stock Baixo', icon: '⚠️', roles: ['ADMIN', 'GESTOR_STOCK'], section: 'Stock' },
+  { href: '/stock/stock-baixo', label: 'Stock Baixo', icon: '⚠️', roles: ['ADMIN', 'GERENTE', 'GESTOR_STOCK'], section: 'Stock' },
 
   // Backoffice
   { href: '/backoffice/relatorios', label: 'Relatórios', icon: '📈', roles: ['ADMIN', 'GERENTE'], section: 'Backoffice' },
@@ -53,6 +53,13 @@ export function Sidebar({ user }: { user: JWTPayload }) {
   // Drawer em tablet/mobile (<1024px); em desktop o CSS ignora o estado.
   const [open, setOpen] = useState(false)
   useEffect(() => setOpen(false), [pathname])
+
+  // Em ecrãs baixos o nav faz scroll interno — garantir que o item ativo
+  // fica sempre visível ao navegar.
+  const activeLinkRef = useRef<HTMLAnchorElement>(null)
+  useEffect(() => {
+    activeLinkRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [pathname])
 
   // Filtro duplo: role E canal — o gerente da Bottlestore não vê
   // "Mesas" nem "Abas Piscina"; o do restaurante não vê "POS Loja".
@@ -84,11 +91,7 @@ export function Sidebar({ user }: { user: JWTPayload }) {
 
       <aside className={`sidebar ${open ? 'open' : ''}`}>
       {/* Logo */}
-      <div style={{
-        padding: '20px 16px',
-        borderBottom: '1px solid var(--color-border)',
-        display: 'flex', alignItems: 'center', gap: '12px',
-      }}>
+      <div className="sidebar-logo">
         <div style={{
           width: '36px', height: '36px', borderRadius: '10px',
           background: 'linear-gradient(135deg, var(--color-accent), var(--color-accent-dark))',
@@ -105,17 +108,12 @@ export function Sidebar({ user }: { user: JWTPayload }) {
       </div>
 
       {/* Nav */}
-      <nav style={{ flex: 1, overflowY: 'auto', padding: '12px 0' }}>
+      <nav className="sidebar-nav">
         {sections.map(section => {
           const sectionItems = filteredItems.filter(i => i.section === section)
           return (
             <div key={section}>
-              <div style={{
-                padding: '8px 24px 4px',
-                fontSize: '10px', fontWeight: 700,
-                color: 'var(--color-text-muted)',
-                textTransform: 'uppercase', letterSpacing: '0.08em',
-              }}>
+              <div className="sidebar-section-title">
                 {section}
               </div>
               {sectionItems.map(item => {
@@ -124,6 +122,7 @@ export function Sidebar({ user }: { user: JWTPayload }) {
                   <Link
                     key={item.href}
                     href={item.href}
+                    ref={isActive ? activeLinkRef : undefined}
                     className={`sidebar-link ${isActive ? 'active' : ''}`}
                   >
                     <span style={{ fontSize: '16px' }}>{item.icon}</span>
@@ -143,16 +142,8 @@ export function Sidebar({ user }: { user: JWTPayload }) {
       </nav>
 
       {/* User info + Logout */}
-      <div style={{
-        borderTop: '1px solid var(--color-border)',
-        padding: '12px 16px',
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          padding: '10px', borderRadius: '8px',
-          background: 'var(--color-bg-elevated)',
-          marginBottom: '8px',
-        }}>
+      <div className="sidebar-footer">
+        <div className="sidebar-user">
           <div style={{
             width: '32px', height: '32px', borderRadius: '8px',
             background: 'var(--color-accent-muted)',

@@ -60,7 +60,7 @@ export function AbasClient({ abas: abasIniciais }: { abas: Aba[] }) {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1200px' }}>
+    <div style={{ padding: '24px' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>

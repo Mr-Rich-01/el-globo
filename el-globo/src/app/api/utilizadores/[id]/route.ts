@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 const UpdateSchema = z.object({
   nome: z.string().min(1).optional(),
-  role: z.enum(['ADMIN', 'GERENTE', 'EMPREGADO_MESA', 'OPERADOR_BALCAO', 'OPERADOR_BOTTLESTORE', 'COZINHEIRO']).optional(),
+  role: z.enum(['ADMIN', 'GERENTE', 'EMPREGADO_MESA', 'OPERADOR_BALCAO', 'OPERADOR_BOTTLESTORE', 'COZINHEIRO', 'GESTOR_STOCK']).optional(),
   canal: z.enum(['RESTAURANTE', 'BOTTLESTORE', 'PISCINA']).nullable().optional(),
   ativo: z.boolean().optional(),
   senha: z.string().min(6).optional(), // reset de password

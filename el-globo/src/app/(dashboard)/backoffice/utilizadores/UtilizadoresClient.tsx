@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 
-type Role = 'ADMIN' | 'GERENTE' | 'EMPREGADO_MESA' | 'OPERADOR_BALCAO' | 'OPERADOR_BOTTLESTORE' | 'COZINHEIRO'
+type Role = 'ADMIN' | 'GERENTE' | 'EMPREGADO_MESA' | 'OPERADOR_BALCAO' | 'OPERADOR_BOTTLESTORE' | 'COZINHEIRO' | 'GESTOR_STOCK'
 type Canal = 'RESTAURANTE' | 'BOTTLESTORE' | 'PISCINA'
 
 interface Utilizador {
@@ -21,6 +21,7 @@ const ROLE_LABEL: Record<Role, string> = {
   OPERADOR_BALCAO: 'Operador de Balcão',
   OPERADOR_BOTTLESTORE: 'Operador Bottlestore',
   COZINHEIRO: 'Cozinheiro',
+  GESTOR_STOCK: 'Gestor de Stock',
 }
 
 const CANAL_LABEL: Record<Canal, string> = {
@@ -123,7 +124,7 @@ export function UtilizadoresClient() {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1000px' }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800 }}>👥 Utilizadores</h1>

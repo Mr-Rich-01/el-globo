@@ -108,7 +108,7 @@ export function CategoriasClient({ categorias }: { categorias: CategoriaData[] }
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '900px' }}>
+    <div style={{ padding: '24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800 }}>🏷️ Categorias & Subcategorias</h1>

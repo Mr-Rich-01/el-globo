@@ -11,7 +11,7 @@ const UtilizadorSchema = z.object({
   nome: z.string().min(1),
   email: z.string().email(),
   senha: z.string().min(6),
-  role: z.enum(['ADMIN', 'GERENTE', 'EMPREGADO_MESA', 'OPERADOR_BALCAO', 'OPERADOR_BOTTLESTORE', 'COZINHEIRO']),
+  role: z.enum(['ADMIN', 'GERENTE', 'EMPREGADO_MESA', 'OPERADOR_BALCAO', 'OPERADOR_BOTTLESTORE', 'COZINHEIRO', 'GESTOR_STOCK']),
   canal: z.enum(['RESTAURANTE', 'BOTTLESTORE', 'PISCINA']).nullable(),
 })
 

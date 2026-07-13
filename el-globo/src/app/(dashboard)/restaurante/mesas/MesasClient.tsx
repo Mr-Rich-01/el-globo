@@ -150,7 +150,7 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1400px' }}>
+    <div style={{ padding: '24px' }}>
       {/* Alerta em tempo real quando a cozinha marca um pedido como pronto */}
       <ProntoAlert />
       {/* Header */}
@@ -314,9 +314,11 @@ export function MesasClient({ mesas, volantes = [], role = '' }: { mesas: MesaDa
                 <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', marginBottom: '10px' }}>
                   Garçom: {v.garcom} · {v.nrItens} {v.nrItens === 1 ? 'item' : 'itens'} · há {formatDistanceToNow(new Date(v.criadoEm), { locale: ptBR })}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                  <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-accent)' }}>MT {v.total.toFixed(2)}</span>
-                  <span style={{ display: 'flex', gap: '6px' }}>
+                {/* flexWrap: com 2 botões (Fechar Conta + Cancelar) a linha não
+                    cabe num cartão de 240px — os botões descem em vez de cortar */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--color-accent)', whiteSpace: 'nowrap' }}>MT {v.total.toFixed(2)}</span>
+                  <span style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
                     {v.estado === 'PRONTO' && (
                       <button
                         className="btn btn-secondary btn-sm"
