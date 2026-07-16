@@ -115,7 +115,9 @@ export function hasPermission(role: Role, permission: string): boolean {
 export const REDIRECT_BY_ROLE: Record<Role, string> = {
   ADMIN: '/dashboard',
   GERENTE: '/dashboard',
-  EMPREGADO_MESA: '/restaurante/mesas',
+  // Garçons aterram no POS tablet (fullscreen, com seletor de mesas
+  // próprio); o mapa de mesas do dashboard continua acessível por URL.
+  EMPREGADO_MESA: '/restaurante/comanda/tablet',
   OPERADOR_BALCAO: '/restaurante/mesas',
   OPERADOR_BOTTLESTORE: '/bottlestore/pos',
   COZINHEIRO: '/restaurante/kds',
