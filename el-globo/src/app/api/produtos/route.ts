@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSession, canaisPermitidos, podeAcederCanal } from '@/lib/auth'
+import { disponibilidadeProduto } from '@/lib/disponibilidade'
 import { z } from 'zod'
 import { CanalVenda } from '@prisma/client'
 
@@ -40,33 +41,64 @@ export async function GET(request: NextRequest) {
   }
 
   if (canalParam) {
-    // Vista de venda (POS/Comanda): só produtos com stock ativo no canal,
-    // com preço/stock desse canal achatados no produto. Ingredientes de
-    // preparação ficam estritamente fora das listagens de venda.
+    // Vista de venda (POS/Comanda): só produtos vendáveis no canal, com
+    // preço/stock achatados no produto. Ingredientes de preparação ficam
+    // estritamente fora das listagens de venda.
+    // A PISCINA é servida pelo bar do restaurante: espelha a resolução de
+    // canal de descontarStockCanal — linha PISCINA ativa, senão fallback
+    // para a linha RESTAURANTE.
+    const canaisVista: CanalVenda[] =
+      canalParam === 'PISCINA' ? ['PISCINA', 'RESTAURANTE'] : [canalParam]
+
     const produtos = await prisma.produto.findMany({
       where: {
         ativo: true,
         isIngrediente: false,
-        stockCanais: { some: { canal: canalParam, ativo: true } },
+        stockCanais: { some: { canal: { in: canaisVista }, ativo: true } },
       },
       include: {
         // parent da categoria: permite ao POS/Tablet agrupar por
         // Grupo Pai → chips de subcategoria dependentes
         categoria: { include: { parent: true } },
-        stockCanais: { where: { canal: canalParam, ativo: true } },
+        // Sem filtro `ativo` — a resolução (com fallback) é feita abaixo
+        stockCanais: { where: { canal: { in: canaisVista } } },
+        // Stock da caixa-pai: o auto-unboxing da venda desmancha caixas no
+        // canal resolvido, por isso a disponibilidade conta-as também
+        parent: {
+          select: {
+            stockCanais: { where: { canal: { in: canaisVista } }, select: { canal: true, stockAtual: true } },
+          },
+        },
       },
       orderBy: [{ categoria: { nome: 'asc' } }, { nome: 'asc' }],
     })
 
-    const mapped = produtos.map(p => {
-      const sc = p.stockCanais[0]
-      const { stockCanais: _sc, ...resto } = p
-      return {
+    const mapped = produtos.flatMap(p => {
+      // Mesma resolução de linha que descontarStockCanal (lib/stock.ts):
+      // linha do canal se ativa; senão, para PISCINA, a do RESTAURANTE.
+      const propria = p.stockCanais.find(s => s.canal === canalParam)
+      const sc = propria?.ativo
+        ? propria
+        : canalParam === 'PISCINA'
+          ? p.stockCanais.find(s => s.canal === 'RESTAURANTE' && s.ativo) ?? null
+          : null
+      if (!sc) return [] // sem linha vendável — a venda também falharia
+
+      // Caixa-pai no MESMO canal de onde a venda sairia (desmancharCaixa
+      // não filtra por ativo — só a existência da linha conta)
+      const stockPai = p.parent?.stockCanais.find(s => s.canal === sc.canal)
+      const { stockCanais: _sc, parent: _p, ...resto } = p
+      return [{
         ...resto,
         precoVenda: Number(sc.precoVenda),
         stockAtual: Number(sc.stockAtual),
         stockMinimo: Number(sc.stockMinimo),
-      }
+        disponivel: disponibilidadeProduto(
+          Number(sc.stockAtual),
+          stockPai ? Number(stockPai.stockAtual) : null,
+          p.fatorConversao,
+        ),
+      }]
     })
     return NextResponse.json(mapped)
   }

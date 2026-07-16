@@ -136,6 +136,11 @@ export async function GET(request: NextRequest) {
   // ?volantes=true → só pedidos sem mesa nem aba (clientes de pé/balcão)
   const apenasVolantes = searchParams.get('volantes') === 'true'
 
+  // ?mesaId= → conta aberta da mesa: pedidos por faturar. MESMO predicado
+  // da cobrança (api/checkout): vendaId null + estado != CANCELADO — o que
+  // se mostra/imprime nunca pode divergir do que se cobra.
+  const mesaId = searchParams.get('mesaId')
+
   // ?destino=COZINHA|BAR → só pedidos com itens dessa secção (KDS/BDS)
   const destinoParam = searchParams.get('destino')
   const destino = destinoParam && ['COZINHA', 'BAR'].includes(destinoParam)
@@ -150,9 +155,16 @@ export async function GET(request: NextRequest) {
   const pedidos = await prisma.pedido.findMany({
     where: {
       canal: canal ? (canal as CanalVenda) : { in: permitidos },
-      estado: estados?.length ? { in: estados } : estado ? (estado as EstadoPedido) : undefined,
+      estado: estados?.length
+        ? { in: estados }
+        : estado
+          ? (estado as EstadoPedido)
+          : mesaId
+            ? { not: 'CANCELADO' as EstadoPedido }
+            : undefined,
       ...(apenasVolantes ? { mesaId: null, abaId: null } : {}),
       ...(destino ? { itens: { some: { destino } } } : {}),
+      ...(mesaId ? { mesaId, vendaId: null } : {}),
     },
     include: {
       itens: { include: { produto: true, fichaTecnica: true } },

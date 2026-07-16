@@ -52,7 +52,223 @@ function estadoSeccao(itens: ItemPreparo[]): EstadoSeccao {
   return 'PENDENTE'
 }
 
-export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
+// Pedido já projetado para a secção (itens filtrados + estado da secção)
+type PedidoSeccao = PedidoPreparo & { itensSeccao: ItemPreparo[]; estadoSeccao: EstadoSeccao }
+
+// Cartão de um pedido na secção. variant='grid' = comportamento original
+// (BDS): botões Iniciar/Pronto em simultâneo no PENDENTE. variant='kanban'
+// (KDS): um único botão com a próxima transição válida DA SECÇÃO.
+function PreparoCard({ pedido, destino, isPending, onAtualizar, variant }: {
+  pedido: PedidoSeccao
+  destino: DestinoPreparo
+  isPending: boolean
+  onAtualizar: (pedidoId: string, novoEstado: EstadoSeccao) => void
+  variant: 'grid' | 'kanban'
+}) {
+  const estCfg = ESTADO_CONFIG[pedido.estadoSeccao]
+  const tempoEspera = formatDistanceToNow(new Date(pedido.criadoEm), { locale: ptBR })
+  const minutos = Math.floor((Date.now() - new Date(pedido.criadoEm).getTime()) / 60000)
+  const urgente = minutos >= 10
+
+  // Pill de tempo: no kanban a cor segue o estado da espera (pronto=verde,
+  // ≥10min=vermelho, senão azul); na grelha mantém o esquema original.
+  const pill = variant === 'kanban'
+    ? pedido.estadoSeccao === 'PRONTO'
+      ? { background: 'rgba(16,185,129,0.15)', color: '#10b981' }
+      : urgente
+        ? { background: 'rgba(239,68,68,0.2)', color: '#ef4444' }
+        : { background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }
+    : {
+        background: urgente ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+        color: urgente ? '#ef4444' : 'var(--color-text-muted)',
+      }
+
+  return (
+    <div className={`kds-card ${estCfg.classe}${variant === 'kanban' ? ' kds-card--left' : ''}`} style={{
+      ...(urgente && pedido.estadoSeccao === 'PENDENTE' ? { animation: 'pulse-glow 1.5s ease-in-out infinite' } : {}),
+    }}>
+      {/* Card Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+        <div>
+          <div style={{ fontSize: '18px', fontWeight: 800, color: estCfg.cor }}>
+            {pedido.mesa
+              ? `Mesa ${pedido.mesa.numero}`
+              : pedido.aba
+                ? `Aba ${pedido.aba.identificador}`
+                : `🧍 ${pedido.identificadorCliente ?? 'Balcão'}`}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+            {pedido.mesa
+              ? `${pedido.mesa.zona ?? ''} · por ${pedido.user.nome}`
+              : `Garçom: ${pedido.garcom?.nome ?? pedido.user.nome}`}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+          <div style={{
+            fontSize: '11px', fontWeight: 700, padding: '2px 8px',
+            borderRadius: '999px', ...pill,
+          }}>
+            ⏱ {tempoEspera}
+          </div>
+          {pedido.vendaId && (
+            <div style={{
+              fontSize: '11px', fontWeight: 700, padding: '2px 8px',
+              borderRadius: '999px', background: 'rgba(16,185,129,0.15)', color: '#10b981',
+            }}>
+              💰 Pago
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Itens desta secção */}
+      <div style={{ marginBottom: '16px' }}>
+        {pedido.itensSeccao.map(item => (
+          <div key={item.id} style={{
+            display: 'flex', gap: '10px', alignItems: 'flex-start',
+            padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            <span style={{
+              minWidth: '28px', height: '28px', borderRadius: '6px',
+              background: 'rgba(255,255,255,0.08)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 800, fontSize: '13px',
+            }}>
+              {item.quantidade}×
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '14px', fontWeight: 600 }}>
+                {item.produto?.nome ?? item.fichaTecnica?.nome}
+              </div>
+              {item.notas && (
+                <div style={{ fontSize: '11px', color: 'var(--color-warning)', marginTop: '2px' }}>
+                  ⚠ {item.notas}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {/* O resto do pedido está noutra secção — dar contexto */}
+        {pedido.itens.length > pedido.itensSeccao.length && (
+          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', paddingTop: '8px' }}>
+            +{pedido.itens.length - pedido.itensSeccao.length} item(ns) {destino === 'COZINHA' ? 'no Bar' : 'na Cozinha'}
+          </div>
+        )}
+      </div>
+
+      {/* Ações — kanban: UM botão por cartão, a próxima transição válida
+          desta secção. O PATCH leva sempre `destino`, por isso "Entregue"
+          na cozinha entrega SÓ a parte da cozinha (o bar continua vivo). */}
+      {variant === 'kanban' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {pedido.estadoSeccao === 'PENDENTE' && (
+            <button
+              onClick={() => onAtualizar(pedido.id, 'EM_PREPARACAO')}
+              disabled={isPending}
+              className="btn btn-touch"
+              style={{
+                justifyContent: 'center',
+                background: 'rgba(59,130,246,0.2)', color: '#3b82f6',
+                border: '1px solid rgba(59,130,246,0.3)',
+              }}
+            >
+              🔥 Iniciar
+            </button>
+          )}
+          {pedido.estadoSeccao === 'EM_PREPARACAO' && (
+            <button
+              onClick={() => onAtualizar(pedido.id, 'PRONTO')}
+              disabled={isPending}
+              className="btn btn-touch"
+              style={{
+                justifyContent: 'center',
+                background: 'rgba(16,185,129,0.2)', color: '#10b981',
+                border: '1px solid rgba(16,185,129,0.3)',
+              }}
+            >
+              ✅ Pronto!
+            </button>
+          )}
+          {pedido.estadoSeccao === 'PRONTO' && (
+            <>
+              <button
+                onClick={() => onAtualizar(pedido.id, 'ENTREGUE')}
+                disabled={isPending}
+                className="btn btn-touch"
+                style={{
+                  justifyContent: 'center',
+                  background: 'rgba(16,185,129,0.2)', color: '#10b981',
+                  border: '1px solid rgba(16,185,129,0.3)',
+                }}
+              >
+                📤 Entregue
+              </button>
+              {pedido.estado === 'PARCIALMENTE_PRONTO' && (
+                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+                  {destino === 'COZINHA' ? 'Bar ainda a terminar' : 'Cozinha ainda a terminar'}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+      <div style={{ display: 'flex', gap: '8px' }}>
+        {pedido.estadoSeccao === 'PENDENTE' && (
+          <button
+            onClick={() => onAtualizar(pedido.id, 'EM_PREPARACAO')}
+            disabled={isPending}
+            className="btn btn-touch"
+            style={{
+              flex: 1, justifyContent: 'center',
+              background: 'rgba(59,130,246,0.2)', color: '#3b82f6',
+              border: '1px solid rgba(59,130,246,0.3)',
+            }}
+          >
+            🔥 Iniciar
+          </button>
+        )}
+        {(pedido.estadoSeccao === 'PENDENTE' || pedido.estadoSeccao === 'EM_PREPARACAO') && (
+          <button
+            onClick={() => onAtualizar(pedido.id, 'PRONTO')}
+            disabled={isPending}
+            className="btn btn-touch"
+            style={{
+              flex: 1, justifyContent: 'center',
+              background: 'rgba(16,185,129,0.2)', color: '#10b981',
+              border: '1px solid rgba(16,185,129,0.3)',
+            }}
+          >
+            ✅ Pronto!
+          </button>
+        )}
+        {pedido.estadoSeccao === 'PRONTO' && (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <button
+              onClick={() => onAtualizar(pedido.id, 'ENTREGUE')}
+              disabled={isPending}
+              className="btn btn-touch"
+              style={{
+                justifyContent: 'center',
+                background: 'rgba(16,185,129,0.2)', color: '#10b981',
+                border: '1px solid rgba(16,185,129,0.3)',
+              }}
+            >
+              📦 Entregar
+            </button>
+            {pedido.estado === 'PARCIALMENTE_PRONTO' && (
+              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', textAlign: 'center' }}>
+                {destino === 'COZINHA' ? 'Bar ainda a terminar' : 'Cozinha ainda a terminar'}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      )}
+    </div>
+  )
+}
+
+export function EcraPreparo({ destino, variant = 'grid' }: { destino: DestinoPreparo; variant?: 'grid' | 'kanban' }) {
   const [pedidos, setPedidos] = useState<PedidoPreparo[]>([])
   const [filtro, setFiltro] = useState<EstadoSeccao | 'TODOS'>('TODOS')
   const [isPending, startTransition] = useTransition()
@@ -167,24 +383,68 @@ export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
           }}>
             {contagem('EM_PREPARACAO')} Em Preparação
           </div>
+          {variant === 'kanban' && (
+            <div style={{
+              padding: '6px 14px', borderRadius: '999px',
+              background: 'rgba(16,185,129,0.15)', color: '#10b981',
+              fontSize: '13px', fontWeight: 700,
+            }}>
+              {contagem('PRONTO')} Prontos
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Filtros */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
-        {(['TODOS', 'PENDENTE', 'EM_PREPARACAO', 'PRONTO'] as const).map(f => (
-          <button
-            key={f}
-            onClick={() => setFiltro(f)}
-            className={`btn btn-sm btn-touch ${filtro === f ? 'btn-primary' : 'btn-secondary'}`}
-          >
-            {f === 'TODOS' ? 'Todos' : ESTADO_CONFIG[f].label}
-          </button>
-        ))}
-      </div>
+      {/* Filtros — só na grelha; o kanban já separa por estado */}
+      {variant === 'grid' && (
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+          {(['TODOS', 'PENDENTE', 'EM_PREPARACAO', 'PRONTO'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFiltro(f)}
+              className={`btn btn-sm btn-touch ${filtro === f ? 'btn-primary' : 'btn-secondary'}`}
+            >
+              {f === 'TODOS' ? 'Todos' : ESTADO_CONFIG[f].label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Grid de pedidos */}
-      {pedidosVisiveis.length === 0 ? (
+      {variant === 'kanban' ? (
+        /* Kanban: 3 colunas particionadas pelo estado DA SECÇÃO */
+        <div className="kanban-board">
+          {(['PENDENTE', 'EM_PREPARACAO', 'PRONTO'] as const).map(estado => {
+            const coluna = pedidosVisiveis.filter(p => p.estadoSeccao === estado)
+            const c = ESTADO_CONFIG[estado]
+            return (
+              <div key={estado} className="kanban-col">
+                <div className="kanban-col-header" style={{ color: c.cor }}>
+                  {c.label.toUpperCase()}
+                  <span style={{
+                    minWidth: '24px', height: '24px', borderRadius: '50%', padding: '0 6px',
+                    background: 'rgba(255,255,255,0.08)', color: c.cor,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '12px', fontWeight: 800,
+                  }}>
+                    {coluna.length}
+                  </span>
+                </div>
+                {coluna.map(pedido => (
+                  <PreparoCard
+                    key={pedido.id}
+                    pedido={pedido}
+                    destino={destino}
+                    isPending={isPending}
+                    onAtualizar={atualizarEstado}
+                    variant={variant}
+                  />
+                ))}
+                {coluna.length === 0 && <div className="kanban-empty">Sem pedidos</div>}
+              </div>
+            )
+          })}
+        </div>
+      ) : pedidosVisiveis.length === 0 ? (
         <div style={{
           textAlign: 'center', padding: '80px',
           color: 'var(--color-text-muted)', fontSize: '18px',
@@ -197,141 +457,16 @@ export function EcraPreparo({ destino }: { destino: DestinoPreparo }) {
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           gap: '16px',
         }}>
-          {pedidosVisiveis.map(pedido => {
-            const estCfg = ESTADO_CONFIG[pedido.estadoSeccao]
-            const tempoEspera = formatDistanceToNow(new Date(pedido.criadoEm), { locale: ptBR })
-            const minutos = Math.floor((Date.now() - new Date(pedido.criadoEm).getTime()) / 60000)
-            const urgente = minutos >= 10
-
-            return (
-              <div key={pedido.id} className={`kds-card ${estCfg.classe}`} style={{
-                ...(urgente && pedido.estadoSeccao === 'PENDENTE' ? { animation: 'pulse-glow 1.5s ease-in-out infinite' } : {}),
-              }}>
-                {/* Card Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, color: estCfg.cor }}>
-                      {pedido.mesa
-                        ? `Mesa ${pedido.mesa.numero}`
-                        : pedido.aba
-                          ? `Aba ${pedido.aba.identificador}`
-                          : `🧍 ${pedido.identificadorCliente ?? 'Balcão'}`}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                      {pedido.mesa
-                        ? `${pedido.mesa.zona ?? ''} · por ${pedido.user.nome}`
-                        : `Garçom: ${pedido.garcom?.nome ?? pedido.user.nome}`}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
-                    <div style={{
-                      fontSize: '11px', fontWeight: 700, padding: '2px 8px',
-                      borderRadius: '999px', background: urgente ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
-                      color: urgente ? '#ef4444' : 'var(--color-text-muted)',
-                    }}>
-                      ⏱ {tempoEspera}
-                    </div>
-                    {pedido.vendaId && (
-                      <div style={{
-                        fontSize: '11px', fontWeight: 700, padding: '2px 8px',
-                        borderRadius: '999px', background: 'rgba(16,185,129,0.15)', color: '#10b981',
-                      }}>
-                        💰 Pago
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Itens desta secção */}
-                <div style={{ marginBottom: '16px' }}>
-                  {pedido.itensSeccao.map(item => (
-                    <div key={item.id} style={{
-                      display: 'flex', gap: '10px', alignItems: 'flex-start',
-                      padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
-                    }}>
-                      <span style={{
-                        minWidth: '28px', height: '28px', borderRadius: '6px',
-                        background: 'rgba(255,255,255,0.08)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontWeight: 800, fontSize: '13px',
-                      }}>
-                        {item.quantidade}×
-                      </span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: '14px', fontWeight: 600 }}>
-                          {item.produto?.nome ?? item.fichaTecnica?.nome}
-                        </div>
-                        {item.notas && (
-                          <div style={{ fontSize: '11px', color: 'var(--color-warning)', marginTop: '2px' }}>
-                            ⚠ {item.notas}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {/* O resto do pedido está noutra secção — dar contexto */}
-                  {pedido.itens.length > pedido.itensSeccao.length && (
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', paddingTop: '8px' }}>
-                      +{pedido.itens.length - pedido.itensSeccao.length} item(ns) {destino === 'COZINHA' ? 'no Bar' : 'na Cozinha'}
-                    </div>
-                  )}
-                </div>
-
-                {/* Ações */}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {pedido.estadoSeccao === 'PENDENTE' && (
-                    <button
-                      onClick={() => atualizarEstado(pedido.id, 'EM_PREPARACAO')}
-                      disabled={isPending}
-                      className="btn btn-touch"
-                      style={{
-                        flex: 1, justifyContent: 'center',
-                        background: 'rgba(59,130,246,0.2)', color: '#3b82f6',
-                        border: '1px solid rgba(59,130,246,0.3)',
-                      }}
-                    >
-                      🔥 Iniciar
-                    </button>
-                  )}
-                  {(pedido.estadoSeccao === 'PENDENTE' || pedido.estadoSeccao === 'EM_PREPARACAO') && (
-                    <button
-                      onClick={() => atualizarEstado(pedido.id, 'PRONTO')}
-                      disabled={isPending}
-                      className="btn btn-touch"
-                      style={{
-                        flex: 1, justifyContent: 'center',
-                        background: 'rgba(16,185,129,0.2)', color: '#10b981',
-                        border: '1px solid rgba(16,185,129,0.3)',
-                      }}
-                    >
-                      ✅ Pronto!
-                    </button>
-                  )}
-                  {pedido.estadoSeccao === 'PRONTO' && (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <button
-                        onClick={() => atualizarEstado(pedido.id, 'ENTREGUE')}
-                        disabled={isPending}
-                        className="btn btn-touch"
-                        style={{
-                          justifyContent: 'center',
-                          background: 'rgba(16,185,129,0.2)', color: '#10b981',
-                          border: '1px solid rgba(16,185,129,0.3)',
-                        }}
-                      >
-                        📦 Entregar
-                      </button>
-                      {pedido.estado === 'PARCIALMENTE_PRONTO' && (
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', textAlign: 'center' }}>
-                          {destino === 'COZINHA' ? 'Bar ainda a terminar' : 'Cozinha ainda a terminar'}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+          {pedidosVisiveis.map(pedido => (
+            <PreparoCard
+              key={pedido.id}
+              pedido={pedido}
+              destino={destino}
+              isPending={isPending}
+              onAtualizar={atualizarEstado}
+              variant={variant}
+            />
+          ))}
         </div>
       )}
     </div>

@@ -4,10 +4,15 @@ import { useState, useEffect, useCallback, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { ProntoAlert } from '@/components/ProntoAlert'
 import { CheckoutPanel, LinhaConta } from '@/components/CheckoutPanel'
+import { gerarTextoConsulta } from '@/lib/recibo'
+import { imprimirTextoFisico } from '@/lib/imprimir-client'
+import { CatalogoPos, Produto, Ficha } from './CatalogoPos'
 
 // Ecrã fullscreen para os tablets dos garçons: escolher destino
 // (mesa ou pedido volante) → lançar itens → ENVIAR À COZINHA.
 // Todos os alvos de toque têm ≥48px (classe .btn-touch).
+// Layout .pos-* (globals.css): paisagem = carrinho lateral fixo 380px;
+// retrato (≤900px) = carrinho em bottom-sheet + cartbar fixa.
 
 type Canal = 'RESTAURANTE' | 'PISCINA'
 
@@ -19,18 +24,14 @@ interface Volante {
   criadoEm: string
   linhas: LinhaConta[]
 }
-interface Categoria {
-  id: string; nome: string; icone: string | null
-  parentCategoryId: string | null
-  parent: { id: string; nome: string } | null
-}
 
-interface Produto {
-  id: string; nome: string; precoVenda: number
-  imagemUrl: string | null
-  categoria: Categoria
+// Pedidos abertos da mesa (aba "Pedidos", pré-conta e checkout).
+// Vêm de GET /api/pedidos?mesaId= — o MESMO predicado da cobrança.
+interface ItemPedidoMesa {
+  id: string; quantidade: number; precoUnitario: number; estadoKDS: string
+  produto: { nome: string } | null; fichaTecnica: { nome: string } | null
 }
-interface Ficha { id: string; nome: string; precoVenda: number }
+interface PedidoMesa { id: string; estado: string; criadoEm: string; itens: ItemPedidoMesa[] }
 
 type Destino =
   | { tipo: 'MESA'; mesaId: string; label: string }
@@ -52,6 +53,11 @@ const MESA_CLASSE: Record<string, string> = {
   LIVRE: 'mesa-livre', OCUPADA: 'mesa-ocupada', CONTA_PEDIDA: 'mesa-conta', RESERVADA: 'mesa-reservada',
 }
 
+const ESTADO_BADGE: Record<string, string> = {
+  PENDENTE: 'badge-warning', EM_PREPARACAO: 'badge-info', PARCIALMENTE_PRONTO: 'badge-info',
+  PRONTO: 'badge-success', ENTREGUE: 'badge-info',
+}
+
 export function TabletClient({
   garcom,
   canais,
@@ -69,15 +75,17 @@ export function TabletClient({
   const [fichas, setFichas] = useState<Ficha[]>([])
   const [destino, setDestino] = useState<Destino | null>(null)
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([])
-  // Navegação hierárquica: grupo pai ('BAR' = fichas técnicas) → subcategoria.
-  // Os chips de subcategoria só aparecem depois de escolher um grupo.
-  const [grupoAtivo, setGrupoAtivo] = useState<string | null>(null)
-  const [subAtiva, setSubAtiva] = useState<string | null>(null)
+  const [abaAtiva, setAbaAtiva] = useState<'menu' | 'pedidos'>('menu')
+  const [pedidosMesa, setPedidosMesa] = useState<PedidoMesa[]>([])
   const [modalVolante, setModalVolante] = useState(false)
   const [volanteRef, setVolanteRef] = useState('')
   const [volanteDetalhe, setVolanteDetalhe] = useState<Volante | null>(null)
   const [checkoutVolante, setCheckoutVolante] = useState<Volante | null>(null)
+  const [checkoutMesa, setCheckoutMesa] = useState<{ mesaId: string; label: string; linhas: LinhaConta[] } | null>(null)
   const [notasAbertas, setNotasAbertas] = useState<string | null>(null) // chave do item com painel de notas aberto
+  // Retrato: o carrinho é um bottom-sheet; true = aberto
+  const [carrinhoAberto, setCarrinhoAberto] = useState(false)
+  const [imprimindo, setImprimindo] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -86,7 +94,7 @@ export function TabletClient({
   const carregarCatalogo = useCallback(async (c: Canal) => {
     const [resProd, resFichas] = await Promise.all([
       fetch(`/api/produtos?canal=${c}`),
-      c === 'RESTAURANTE' ? fetch('/api/fichas-tecnicas?ativo=true') : Promise.resolve(null),
+      c === 'RESTAURANTE' ? fetch('/api/fichas-tecnicas?ativo=true&canal=RESTAURANTE') : Promise.resolve(null),
     ])
     const prod = await resProd.json()
     // Produtos com preço 0 são internos (caixas de armazém, garrafas de
@@ -94,7 +102,9 @@ export function TabletClient({
     setProdutos(Array.isArray(prod) ? prod.filter((p: Produto) => Number(p.precoVenda) > 0) : [])
     if (resFichas) {
       const f = await resFichas.json()
-      setFichas(Array.isArray(f) ? f.map((x: { id: string; nome: string; precoVenda: unknown }) => ({ id: x.id, nome: x.nome, precoVenda: Number(x.precoVenda) })) : [])
+      setFichas(Array.isArray(f) ? f.map((x: { id: string; nome: string; precoVenda: unknown; disponivel?: number | null }) => ({
+        id: x.id, nome: x.nome, precoVenda: Number(x.precoVenda), disponivel: x.disponivel ?? null,
+      })) : [])
     } else {
       setFichas([])
     }
@@ -102,32 +112,37 @@ export function TabletClient({
 
   useEffect(() => { carregarCatalogo(canal) }, [canal, carregarCatalogo])
 
-  // Grupo de um produto = parent da categoria (ou a própria, se for pai)
-  const grupoDe = (p: Produto) => p.categoria.parent ?? p.categoria
-  const grupos = Array.from(new Map(produtos.map(p => [grupoDe(p).id, grupoDe(p)])).values())
-  const subcategorias = grupoAtivo && grupoAtivo !== 'BAR'
-    ? Array.from(new Map(
-        produtos.filter(p => p.categoria.parentCategoryId === grupoAtivo).map(p => [p.categoria.id, p.categoria])
-      ).values())
-    : []
-
-  const produtosFiltrados = produtos.filter(p => {
-    if (!grupoAtivo) return true
-    if (grupoAtivo === 'BAR') return false
-    if (grupoDe(p).id !== grupoAtivo) return false
-    return !subAtiva || p.categoria.id === subAtiva
-  })
-  const mostrarFichas = fichas.length > 0 && (!grupoAtivo || grupoAtivo === 'BAR')
-
-  function escolherGrupo(id: string | null) {
-    setGrupoAtivo(id)
-    setSubAtiva(null)
-  }
+  // Pedidos por faturar da mesa — fonte fresca do servidor, usada pela
+  // aba Pedidos e como base de exibição do checkout/pré-conta.
+  const carregarPedidosMesa = useCallback(async (mesaId: string): Promise<PedidoMesa[]> => {
+    const res = await fetch(`/api/pedidos?mesaId=${mesaId}`)
+    const data = await res.json()
+    const lista: PedidoMesa[] = res.ok && Array.isArray(data) ? data : []
+    setPedidosMesa(lista)
+    return lista
+  }, [])
 
   const totalCarrinho = carrinho.reduce((acc, i) => acc + i.preco * i.quantidade, 0)
   const chave = (i: { tipo: string; id: string }) => `${i.tipo}-${i.id}`
 
+  // ── Guardas de stock (advisory — a guarda real é o decremento
+  //    condicional do envio; espelham o POS do dashboard) ──────────
+  const qtdDe = useCallback((tipo: 'produto' | 'ficha', id: string) =>
+    carrinho.find(i => i.tipo === tipo && i.id === id)?.quantidade ?? 0, [carrinho])
+
+  // null = sem limite (ficha sem receita)
+  function limiteDisponivel(tipo: string, id: string): number | null {
+    if (tipo === 'produto') return produtos.find(p => p.id === id)?.disponivel ?? null
+    return fichas.find(f => f.id === id)?.disponivel ?? null
+  }
+
+  function podeAdicionar(tipo: 'produto' | 'ficha', id: string) {
+    const limite = limiteDisponivel(tipo, id)
+    return limite === null || qtdDe(tipo, id) < limite
+  }
+
   function adicionar(tipo: 'produto' | 'ficha', id: string, nome: string, preco: number) {
+    if (!podeAdicionar(tipo, id)) return
     setCarrinho(prev => {
       const ex = prev.find(i => i.tipo === tipo && i.id === id)
       if (ex) return prev.map(i => i.tipo === tipo && i.id === id ? { ...i, quantidade: i.quantidade + 1 } : i)
@@ -135,10 +150,15 @@ export function TabletClient({
     })
   }
 
-  function ajustar(tipo: string, id: string, delta: number) {
+  function ajustar(tipo: 'produto' | 'ficha', id: string, delta: number) {
+    if (delta > 0 && !podeAdicionar(tipo, id)) return
     setCarrinho(prev => prev
       .map(i => i.tipo === tipo && i.id === id ? { ...i, quantidade: Math.max(0, i.quantidade + delta) } : i)
       .filter(i => i.quantidade > 0))
+  }
+
+  function remover(tipo: string, id: string) {
+    setCarrinho(prev => prev.filter(i => !(i.tipo === tipo && i.id === id)))
   }
 
   function toggleNotaRapida(itemChave: string, nota: string) {
@@ -152,6 +172,15 @@ export function TabletClient({
     }))
   }
 
+  function sairDoDestino() {
+    setDestino(null)
+    setCarrinho([])
+    setCarrinhoAberto(false)
+    setAbaAtiva('menu')
+    setPedidosMesa([])
+    setErro(null)
+  }
+
   function escolherMesa(mesa: Mesa) {
     if (mesa.estado === 'LIVRE') {
       // Abre a mesa em background (mesmo padrão do MesasClient)
@@ -159,7 +188,9 @@ export function TabletClient({
     }
     setDestino({ tipo: 'MESA', mesaId: mesa.id, label: `Mesa ${mesa.numero}` })
     setCarrinho([])
+    setAbaAtiva('menu')
     setErro(null)
+    carregarPedidosMesa(mesa.id)
   }
 
   function abrirVolanteNovo() {
@@ -202,17 +233,74 @@ export function TabletClient({
 
       const data = await res.json()
       if (!res.ok) {
+        // Envio falhou (ex.: stock insuficiente na corrida do decremento):
+        // o carrinho fica INTACTO e o sheet abre para o erro ser visível.
         setErro(data.erro ?? 'Erro ao enviar o pedido')
+        setCarrinhoAberto(true)
         return
       }
 
+      // Reset SÓ no caminho de sucesso
       const label = destino.tipo === 'MESA' ? destino.label : destino.tipo === 'VOLANTE_NOVO' ? destino.ref : destino.label
       setToast(`✅ ${label} — pedido enviado à cozinha!`)
       setTimeout(() => setToast(null), 4000)
       setCarrinho([])
+      setCarrinhoAberto(false)
       setDestino(null)
+      setPedidosMesa([])
+      setAbaAtiva('menu')
       router.refresh()
     })
+  }
+
+  // ── Pré-conta e fecho de conta da mesa ─────────────────────────
+  // Ambos partem de um fetch FRESCO a /api/pedidos?mesaId= (mesmo
+  // predicado da cobrança) — nunca do estado local, que pode estar
+  // desatualizado se outro dispositivo lançou pedidos entretanto.
+  const linhasDe = (pedidos: PedidoMesa[]): LinhaConta[] =>
+    pedidos.flatMap(p => p.itens.map(i => ({
+      id: i.id,
+      nome: i.produto?.nome ?? i.fichaTecnica?.nome ?? 'Item',
+      quantidade: i.quantidade,
+      precoUnitario: Number(i.precoUnitario),
+    })))
+
+  async function imprimirConta() {
+    if (destino?.tipo !== 'MESA' || imprimindo) return
+    setImprimindo(true)
+    setErro(null)
+    try {
+      const pedidos = await carregarPedidosMesa(destino.mesaId)
+      if (pedidos.length === 0) {
+        setErro('Mesa sem pedidos por faturar')
+        return
+      }
+      const itens = linhasDe(pedidos)
+      const texto = gerarTextoConsulta({
+        mesaLabel: destino.label,
+        criadoEm: new Date(),
+        operador: garcom.nome,
+        itens,
+        total: itens.reduce((acc, l) => acc + l.precoUnitario * l.quantidade, 0),
+      })
+      const via = await imprimirTextoFisico(texto)
+      if (via === 'nenhuma') alert('Impressora não disponível — emparelhe a impressora USB ou verifique a impressora de rede.')
+    } finally {
+      setImprimindo(false)
+    }
+  }
+
+  async function fecharContaMesa() {
+    if (destino?.tipo !== 'MESA') return
+    setErro(null)
+    const pedidos = await carregarPedidosMesa(destino.mesaId)
+    if (pedidos.length === 0) {
+      setErro('Mesa sem pedidos por faturar')
+      return
+    }
+    // As linhas são só para exibição — o total cobrado é recalculado
+    // server-side pelo /api/checkout a partir dos pedidos da mesa.
+    setCheckoutMesa({ mesaId: destino.mesaId, label: destino.label, linhas: linhasDe(pedidos) })
   }
 
   async function handleLogout() {
@@ -222,6 +310,8 @@ export function TabletClient({
   }
 
   const zonas = Array.from(new Set(mesas.map(m => m.zona ?? 'Sem Zona')))
+  const totalConta = pedidosMesa.flatMap(p => p.itens).reduce((acc, i) => acc + Number(i.precoUnitario) * i.quantidade, 0)
+  const qtdCarrinho = carrinho.reduce((a, i) => a + i.quantidade, 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden' }}>
@@ -254,7 +344,7 @@ export function TabletClient({
             {canais.map(c => (
               <button
                 key={c}
-                onClick={() => { setCanal(c); escolherGrupo(null) }}
+                onClick={() => setCanal(c)}
                 className={`btn btn-sm btn-touch ${canal === c ? 'btn-primary' : 'btn-secondary'}`}
               >
                 {c === 'RESTAURANTE' ? '🍽️ Restaurante' : '🏊 Piscina'}
@@ -350,130 +440,81 @@ export function TabletClient({
 
       {/* ─── Etapa 2: lançar itens ────────────────────────── */}
       {destino && (
-        <div className="split-layout" style={{ flex: 1, minHeight: 0, height: 'auto' }}>
-          {/* Esquerda: catálogo */}
-          <div className="split-main" style={{ padding: '12px 16px' }}>
+        <div className="pos-layout">
+          {/* Esquerda: catálogo / pedidos da mesa */}
+          <div className="pos-main">
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
-              <button onClick={() => { setDestino(null); setCarrinho([]) }} className="btn btn-secondary btn-sm btn-touch">←</button>
+              <button onClick={sairDoDestino} className="btn btn-secondary btn-sm btn-touch">←</button>
               <div style={{ fontWeight: 800, fontSize: '16px' }}>
                 {destino.tipo === 'MESA' ? `🍽️ ${destino.label}` : destino.tipo === 'VOLANTE_NOVO' ? `🧍 ${destino.ref}` : `🧍 ${destino.label} (adicionar)`}
               </div>
-            </div>
-
-            {/* Chips de GRUPO (categorias pai) com scroll horizontal */}
-            <div className="chips-scroll" style={{ marginBottom: subcategorias.length > 0 ? '8px' : '12px' }}>
-              <button
-                onClick={() => escolherGrupo(null)}
-                className={`btn btn-sm btn-touch ${!grupoAtivo ? 'btn-primary' : 'btn-secondary'}`}
-              >
-                Tudo
-              </button>
-              {fichas.length > 0 && (
-                <button
-                  onClick={() => escolherGrupo(grupoAtivo === 'BAR' ? null : 'BAR')}
-                  className={`btn btn-sm btn-touch ${grupoAtivo === 'BAR' ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  🍸 Bar
-                </button>
+              {destino.tipo === 'MESA' && (
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={() => setAbaAtiva('menu')}
+                    className={`btn btn-sm btn-touch ${abaAtiva === 'menu' ? 'btn-primary' : 'btn-secondary'}`}
+                  >Menu</button>
+                  <button
+                    onClick={() => { setAbaAtiva('pedidos'); carregarPedidosMesa(destino.mesaId) }}
+                    className={`btn btn-sm btn-touch ${abaAtiva === 'pedidos' ? 'btn-primary' : 'btn-secondary'}`}
+                  >
+                    Pedidos {pedidosMesa.length > 0 && `(${pedidosMesa.length})`}
+                  </button>
+                </div>
               )}
-              {grupos.map(g => (
-                <button
-                  key={g.id}
-                  onClick={() => escolherGrupo(grupoAtivo === g.id ? null : g.id)}
-                  className={`btn btn-sm btn-touch ${grupoAtivo === g.id ? 'btn-primary' : 'btn-secondary'}`}
-                >
-                  {g.nome}
-                </button>
-              ))}
             </div>
 
-            {/* Chips de SUBCATEGORIA — só ativos depois de escolher o grupo */}
-            {subcategorias.length > 0 && (
-              <div className="chips-scroll" style={{ marginBottom: '12px', paddingLeft: '6px', borderLeft: '3px solid var(--color-accent-muted)' }}>
-                <button
-                  onClick={() => setSubAtiva(null)}
-                  className={`btn btn-sm btn-touch ${!subAtiva ? 'btn-primary' : 'btn-ghost'}`}
-                >
-                  Todas
-                </button>
-                {subcategorias.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => setSubAtiva(subAtiva === s.id ? null : s.id)}
-                    className={`btn btn-sm btn-touch ${subAtiva === s.id ? 'btn-primary' : 'btn-ghost'}`}
-                  >
-                    {s.nome}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Fichas técnicas (bar) */}
-            {mostrarFichas && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px', marginBottom: '12px' }}>
-                {fichas.map(f => {
-                  const noCarrinho = carrinho.find(i => i.tipo === 'ficha' && i.id === f.id)
-                  return (
-                    <button
-                      key={f.id}
-                      onClick={() => adicionar('ficha', f.id, f.nome, f.precoVenda)}
-                      className="card btn-touch"
-                      style={{
-                        padding: '14px', textAlign: 'left', cursor: 'pointer', border: 'none', position: 'relative',
-                        background: noCarrinho ? 'var(--color-accent-muted)' : 'var(--color-bg-elevated)',
-                      }}
-                    >
-                      {noCarrinho && (
-                        <div style={{ position: 'absolute', top: '6px', right: '6px', background: 'var(--color-accent)', color: '#000', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800 }}>{noCarrinho.quantidade}</div>
-                      )}
-                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '4px' }}>🍸 Bar</div>
-                      <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px' }}>{f.nome}</div>
-                      <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-accent)' }}>MT {f.precoVenda.toFixed(2)}</div>
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Produtos */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' }}>
-              {produtosFiltrados.map(p => {
-                const noCarrinho = carrinho.find(i => i.tipo === 'produto' && i.id === p.id)
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => adicionar('produto', p.id, p.nome, Number(p.precoVenda))}
-                    className="card btn-touch"
-                    style={{
-                      padding: '14px', textAlign: 'left', cursor: 'pointer', border: 'none', position: 'relative',
-                      background: noCarrinho ? 'var(--color-accent-muted)' : 'var(--color-bg-elevated)',
-                    }}
-                  >
-                    {noCarrinho && (
-                      <div style={{ position: 'absolute', top: '6px', right: '6px', background: 'var(--color-accent)', color: '#000', borderRadius: '50%', width: '22px', height: '22px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 800 }}>{noCarrinho.quantidade}</div>
-                    )}
-                    {p.imagemUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.imagemUrl} alt={p.nome} loading="lazy"
-                        style={{ width: '100%', height: '72px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }}
-                      />
-                    )}
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '4px' }}>
-                      {p.categoria.nome}
+            {abaAtiva === 'menu' ? (
+              // key={canal}: trocar de canal repõe pesquisa e navegação
+              <CatalogoPos key={canal} produtos={produtos} fichas={fichas} qtdDe={qtdDe} onAdicionar={adicionar} />
+            ) : (
+              // Aba Pedidos: conta aberta da mesa (pedidos por faturar)
+              <div>
+                {pedidosMesa.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--color-text-muted)', fontSize: '14px' }}>
+                    Mesa sem pedidos por faturar
+                  </div>
+                ) : (
+                  <>
+                    {pedidosMesa.map(p => (
+                      <div key={p.id} className="card" style={{ padding: '14px', marginBottom: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                            {new Date(p.criadoEm).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <span className={`badge ${ESTADO_BADGE[p.estado] ?? 'badge-info'}`}>
+                            {p.estado === 'ENTREGUE' ? 'POR PAGAR' : p.estado.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                        {p.itens.map(i => (
+                          <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: '13px', borderTop: '1px solid var(--color-border)' }}>
+                            <span>{i.quantidade}× {i.produto?.nome ?? i.fichaTecnica?.nome ?? 'Item'}</span>
+                            <span style={{ color: 'var(--color-text-secondary)' }}>MT {(Number(i.precoUnitario) * i.quantidade).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 4px', fontWeight: 800, fontSize: '15px' }}>
+                      <span>Total da Conta</span>
+                      <span style={{ color: 'var(--color-accent)' }}>MT {totalConta.toFixed(2)}</span>
                     </div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '6px', lineHeight: 1.3 }}>{p.nome}</div>
-                    <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--color-accent)' }}>MT {Number(p.precoVenda).toFixed(2)}</div>
-                  </button>
-                )
-              })}
-            </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Direita: carrinho / comanda */}
-          <div className="split-side">
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--color-border)', fontWeight: 700, fontSize: '15px' }}>
-              🛒 Comanda {carrinho.length > 0 && `(${carrinho.reduce((a, i) => a + i.quantidade, 0)})`}
+          {/* Direita: carrinho / comanda (retrato: bottom-sheet) */}
+          <div className={`pos-side${carrinhoAberto ? ' pos-side--open' : ''}`}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 16px', borderBottom: '1px solid var(--color-border)', fontWeight: 700, fontSize: '15px' }}>
+              🛒 Comanda {qtdCarrinho > 0 && `(${qtdCarrinho})`}
+              <button
+                onClick={() => setCarrinhoAberto(false)}
+                className="btn btn-secondary btn-sm btn-touch pos-portrait-only"
+                style={{ marginLeft: 'auto' }}
+              >
+                ▼ Fechar
+              </button>
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
@@ -489,15 +530,26 @@ export function TabletClient({
                       padding: '12px', borderRadius: '10px', marginBottom: '8px',
                       background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: '14px', fontWeight: 600 }}>{item.nome}</div>
                           <div style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>MT {item.preco.toFixed(2)} un.</div>
                         </div>
+                        <button
+                          onClick={() => remover(item.tipo, item.id)}
+                          className="btn btn-ghost btn-sm"
+                          aria-label={`Remover ${item.nome}`}
+                          style={{ color: 'var(--color-danger)', padding: '4px 8px' }}
+                        >✕</button>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         {/* Botões gigantes +/− */}
                         <button onClick={() => ajustar(item.tipo, item.id, -1)} className="btn btn-secondary btn-touch" style={{ padding: 0, width: '48px', justifyContent: 'center', fontSize: '22px' }}>−</button>
                         <span style={{ fontSize: '18px', fontWeight: 800, minWidth: '28px', textAlign: 'center' }}>{item.quantidade}</span>
                         <button onClick={() => ajustar(item.tipo, item.id, +1)} className="btn btn-secondary btn-touch" style={{ padding: 0, width: '48px', justifyContent: 'center', fontSize: '22px' }}>+</button>
+                        <span style={{ marginLeft: 'auto', fontSize: '14px', fontWeight: 800, color: 'var(--color-accent)' }}>
+                          MT {(item.preco * item.quantidade).toFixed(2)}
+                        </span>
                       </div>
 
                       {/* Notas rápidas */}
@@ -540,7 +592,7 @@ export function TabletClient({
               )}
             </div>
 
-            {/* Rodapé fixo: total + ENVIAR */}
+            {/* Rodapé fixo: total + ENVIAR + conta (mesa) */}
             <div style={{ padding: '14px 16px', borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
               {carrinho.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -561,7 +613,55 @@ export function TabletClient({
               >
                 {isPending
                   ? <><div className="spinner" style={{ width: '18px', height: '18px' }} /> A enviar...</>
-                  : '📤 ENVIAR À COZINHA'}
+                  : '🍳 Enviar para Cozinha/Bar'}
+              </button>
+              {destino.tipo === 'MESA' && (
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <button
+                    onClick={imprimirConta}
+                    disabled={imprimindo}
+                    className="btn btn-secondary btn-touch"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    {imprimindo ? 'A imprimir...' : '🖨 Imprimir'}
+                  </button>
+                  <button
+                    onClick={fecharContaMesa}
+                    className="btn btn-secondary btn-touch"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    💳 Fechar Conta
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Retrato: barra fixa com total + Enviar (o CSS esconde em paisagem) */}
+          <div className="pos-cartbar">
+            <div style={{ position: 'relative', width: '44px', height: '44px', borderRadius: '11px', background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border-strong)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '19px', flexShrink: 0 }}>
+              🛒
+              {qtdCarrinho > 0 && (
+                <div style={{ position: 'absolute', top: '-7px', right: '-7px', width: '22px', height: '22px', borderRadius: '50%', background: 'var(--color-accent)', color: '#000', fontWeight: 800, fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qtdCarrinho}</div>
+              )}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Total do Pedido</div>
+              <div style={{ fontSize: '17px', fontWeight: 800, color: 'var(--color-accent)' }}>MT {totalCarrinho.toFixed(2)}</div>
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setCarrinhoAberto(true)}
+                className="btn btn-secondary btn-touch"
+              >
+                Ver carrinho ▲
+              </button>
+              <button
+                onClick={enviarCozinha}
+                disabled={carrinho.length === 0 || isPending}
+                className="btn btn-primary btn-touch"
+              >
+                {isPending ? 'A enviar...' : '🍳 Enviar'}
               </button>
             </div>
           </div>
@@ -645,6 +745,28 @@ export function TabletClient({
               operador={garcom.nome}
               onCancelar={() => setCheckoutVolante(null)}
               onSucesso={() => { setCheckoutVolante(null); router.refresh() }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ─── Modal: checkout da mesa (divisão + recibo) ────── */}
+      {checkoutMesa && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 60,
+          background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px',
+        }}>
+          <div className="card animate-fade-in" style={{ padding: '28px', maxWidth: '520px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <CheckoutPanel
+              tipo="MESA"
+              alvoId={checkoutMesa.mesaId}
+              titulo={checkoutMesa.label}
+              canalLabel={`Restaurante — ${checkoutMesa.label}`}
+              linhas={checkoutMesa.linhas}
+              operador={garcom.nome}
+              onCancelar={() => setCheckoutMesa(null)}
+              onSucesso={() => { setCheckoutMesa(null); sairDoDestino(); router.refresh() }}
             />
           </div>
         </div>
