@@ -4,14 +4,14 @@
  * ============================================================
  *
  * Limpa TODAS as tabelas transacionais (vendas, faturas, pedidos,
- * movimentos de stock, abas, quebras e sessões de caixa) e coloca
- * o stock de cada canal a ZERO, mantendo intacta a estrutura:
- * utilizadores, produtos, categorias, fichas técnicas, mesas e as
- * linhas de preço por canal (StockCanal — os preços ficam, o stock
- * atual é reposto a 0).
+ * movimentos de stock, abas, quebras e sessões de caixa), apaga as
+ * MESAS de teste e todos os UTILIZADORES que não sejam ADMIN, e
+ * coloca o stock de cada canal a ZERO. Mantém intacto o catálogo:
+ * produtos, categorias, fichas técnicas e as linhas de preço por
+ * canal (StockCanal — os preços ficam, o stock atual é reposto a 0).
  *
- * Objetivo: entregar o sistema ao cliente com faturação e stock a
- * começar do zero, sem apagar o catálogo nem as contas.
+ * Objetivo: entregar o sistema ao cliente só com a conta admin;
+ * mesas reais e contas dos funcionários são criadas na própria UI.
  *
  * ⚠️ DESTRUTIVO E IRREVERSÍVEL. Uso manual, nunca em CI/automático.
  *   Execução:  npx tsx scripts/reset-db-prod.ts --sim
@@ -37,7 +37,7 @@ async function main() {
   }
 
   console.log('🧹 A preparar o sistema para Go-Live...')
-  console.log('   Estrutura mantida: Utilizadores, Produtos, Categorias, Fichas Técnicas, Mesas.')
+  console.log('   Estrutura mantida: conta(s) ADMIN, Produtos, Categorias, Fichas Técnicas.')
   console.log('')
 
   // A ordem respeita as foreign keys:
@@ -45,6 +45,8 @@ async function main() {
   //  - itens de pedido/venda antes dos respetivos cabeçalhos
   //  - pedidos antes de vendas (Pedido.vendaId → Venda)
   //  - pedidos e vendas antes de abas (referenciam Aba)
+  //  - mesas e users por último: só podem cair depois de pedidos,
+  //    vendas, quebras, caixas e movimentos (todos referenciam-nos)
   const resultado = await prisma.$transaction([
     prisma.movimentacaoStock.deleteMany({}),
     prisma.quebra.deleteMany({}),
@@ -56,13 +58,16 @@ async function main() {
     prisma.aba.deleteMany({}),
     // Stock de todos os canais a zero (preços/mínimos preservados)
     prisma.stockCanal.updateMany({ data: { stockAtual: 0 } }),
-    // Todas as mesas de volta a LIVRE
-    prisma.mesa.updateMany({ data: { estado: 'LIVRE' } }),
+    // Mesas de teste apagadas — o cliente cria as reais na UI
+    prisma.mesa.deleteMany({}),
+    // Todos os utilizadores exceto ADMIN — as contas dos
+    // funcionários reais são criadas depois pelo próprio admin
+    prisma.user.deleteMany({ where: { role: { not: 'ADMIN' } } }),
   ])
 
   const [
     movimentos, quebras, caixas, itensPedido, pedidos,
-    itensVenda, vendas, abas, stockZerado, mesasLivres,
+    itensVenda, vendas, abas, stockZerado, mesasApagadas, usersApagados,
   ] = resultado
 
   console.log('✅ Limpeza concluída:')
@@ -75,10 +80,22 @@ async function main() {
   console.log(`   • Vendas/Faturas apagadas:         ${vendas.count}`)
   console.log(`   • Abas de piscina apagadas:        ${abas.count}`)
   console.log(`   • Linhas de stock zeradas:         ${stockZerado.count}`)
-  console.log(`   • Mesas repostas a LIVRE:          ${mesasLivres.count}`)
+  console.log(`   • Mesas apagadas:                  ${mesasApagadas.count}`)
+  console.log(`   • Utilizadores apagados (≠ADMIN):  ${usersApagados.count}`)
+  console.log('')
+
+  const admins = await prisma.user.findMany({
+    where: { role: 'ADMIN' },
+    select: { nome: true, email: true, ativo: true },
+  })
+  console.log('👤 Contas restantes:')
+  for (const a of admins) {
+    console.log(`   • ${a.nome} <${a.email}> ${a.ativo ? '' : '(INATIVA!)'}`)
+  }
   console.log('')
   console.log('🎉 Sistema pronto para entrega — faturação e stock a zero.')
-  console.log('   Próximo passo: registar as entradas de stock reais do cliente.')
+  console.log('   Próximos passos: criar mesas reais, contas dos funcionários')
+  console.log('   e registar as entradas de stock do cliente.')
 }
 
 main()
