@@ -12,14 +12,22 @@
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs'
 import path from 'path'
-import { construirTemplate } from '../src/lib/importacao-produtos'
+import { construirTemplate, type CategoriaTemplate } from '../src/lib/importacao-produtos'
 
 // Espelho das categorias do prisma/seed.ts (fallback sem BD)
-const CATEGORIAS_SEED = [
-  'Bebidas Alcoólicas', 'Cervejas', 'Vinhos', 'Whiskies',
-  'Bebidas Não Alcoólicas', 'Sumos', 'Refrescos',
-  'Comida', 'Entradas', 'Pratos Principais', 'Aperitivos',
-  'Snacks',
+const CATEGORIAS_SEED: CategoriaTemplate[] = [
+  { nome: 'Bebidas Alcoólicas', parentNome: null },
+  { nome: 'Cervejas', parentNome: 'Bebidas Alcoólicas' },
+  { nome: 'Vinhos', parentNome: 'Bebidas Alcoólicas' },
+  { nome: 'Whiskies', parentNome: 'Bebidas Alcoólicas' },
+  { nome: 'Bebidas Não Alcoólicas', parentNome: null },
+  { nome: 'Sumos', parentNome: 'Bebidas Não Alcoólicas' },
+  { nome: 'Refrescos', parentNome: 'Bebidas Não Alcoólicas' },
+  { nome: 'Comida', parentNome: null },
+  { nome: 'Entradas', parentNome: 'Comida' },
+  { nome: 'Pratos Principais', parentNome: 'Comida' },
+  { nome: 'Aperitivos', parentNome: 'Comida' },
+  { nome: 'Snacks', parentNome: null },
 ]
 
 function carregarEnv() {
@@ -32,7 +40,7 @@ function carregarEnv() {
   }
 }
 
-async function categoriasDaBD(): Promise<string[] | null> {
+async function categoriasDaBD(): Promise<CategoriaTemplate[] | null> {
   try {
     const { PrismaClient } = await import('@prisma/client')
     const { PrismaPg } = await import('@prisma/adapter-pg')
@@ -41,11 +49,11 @@ async function categoriasDaBD(): Promise<string[] | null> {
     const prisma = new PrismaClient({ adapter: new PrismaPg(pool) })
     const cats = await prisma.categoria.findMany({
       where: { ativo: true },
-      select: { nome: true },
+      select: { nome: true, parent: { select: { nome: true } } },
       orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
     })
     await prisma.$disconnect()
-    return cats.length > 0 ? cats.map(c => c.nome) : null
+    return cats.length > 0 ? cats.map(c => ({ nome: c.nome, parentNome: c.parent?.nome ?? null })) : null
   } catch {
     return null
   }

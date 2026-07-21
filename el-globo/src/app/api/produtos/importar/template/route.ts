@@ -13,11 +13,11 @@ export async function GET() {
 
   const categorias = await prisma.categoria.findMany({
     where: { ativo: true },
-    select: { nome: true },
+    select: { nome: true, parent: { select: { nome: true } } },
     orderBy: [{ ordem: 'asc' }, { nome: 'asc' }],
   })
 
-  const wb = construirTemplate(categorias.map(c => c.nome))
+  const wb = construirTemplate(categorias.map(c => ({ nome: c.nome, parentNome: c.parent?.nome ?? null })))
   const buffer = await wb.xlsx.writeBuffer()
 
   return new NextResponse(Buffer.from(buffer), {

@@ -31,7 +31,8 @@ export const COLUNAS: ColunaDef[] = [
   { chave: 'nome', titulo: 'nome', largura: 32, obrigatorio: 'Sim', descricao: 'Nome do produto como aparece no POS e no cardápio. Ex: "Cerveja Dos M 330ml".' },
   { chave: 'sku', titulo: 'sku', largura: 16, obrigatorio: 'Sim', descricao: 'Código único do produto — é a chave da importação: SKU novo cria produto, SKU existente atualiza. Para vender em 2 canais, repita o SKU em 2 linhas mudando só o canal.' },
   { chave: 'codigo_barras', titulo: 'codigo_barras', largura: 16, obrigatorio: 'Não', descricao: 'Código de barras (EAN). Único no sistema se preenchido.' },
-  { chave: 'categoria', titulo: 'categoria', largura: 20, obrigatorio: 'Sim', descricao: 'Nome exato de uma categoria existente (dropdown — ver folha "Listas"). Categorias novas criam-se primeiro no sistema.' },
+  { chave: 'grupo', titulo: 'grupo', largura: 22, obrigatorio: 'Sim', descricao: 'Grupo (categoria pai) existente: Bebidas Alcoólicas, Comida, … (dropdown — ver folha "Listas"). Grupos novos criam-se primeiro em Stock → Categorias.' },
+  { chave: 'subcategoria', titulo: 'subcategoria', largura: 20, obrigatorio: 'Não', descricao: 'Subcategoria DENTRO do grupo indicado (Cervejas, Sumos, Pratos Principais…). Em branco = produto genérico do grupo. A folha "Listas" mostra a que grupo pertence cada subcategoria.' },
   { chave: 'descricao', titulo: 'descricao', largura: 28, obrigatorio: 'Não', descricao: 'Descrição para o cardápio digital.' },
   { chave: 'unidade', titulo: 'unidade', largura: 12, obrigatorio: 'Sim', descricao: 'Unidade de medida: UNIDADE (garrafas/latas), LITRO, MILILITRO, KG, GRAMA ou PORCAO (comida).' },
   { chave: 'canal', titulo: 'canal', largura: 14, obrigatorio: 'Sim', descricao: 'Onde o produto é vendido: RESTAURANTE, BOTTLESTORE ou PISCINA. A Piscina sem linha própria é servida pelo stock do Restaurante.' },
@@ -123,7 +124,8 @@ const LinhaSchema = z.object({
   nome: z.string().min(1, 'nome é obrigatório').max(200),
   sku: z.string().min(1, 'sku é obrigatório').max(60),
   codigoBarras: z.string().max(60).nullable(),
-  categoria: z.string().min(1, 'categoria é obrigatória'),
+  grupo: z.string().min(1, 'grupo é obrigatório'),
+  subcategoria: z.string().nullable(),
   descricao: z.string().max(1000).nullable(),
   unidade: z.enum(UNIDADES, { error: `unidade deve ser uma de: ${UNIDADES.join(', ')}` }),
   canal: z.enum(CANAIS, { error: `canal deve ser um de: ${CANAIS.join(', ')}` }),
@@ -177,8 +179,8 @@ export interface PlanoImportacao {
 }
 
 export interface ContextoValidacao {
-  // Categorias ativas: id + nome
-  categorias: { id: string; nome: string }[]
+  // Categorias ativas com hierarquia (parentCategoryId null = grupo)
+  categorias: { id: string; nome: string; parentCategoryId: string | null }[]
   // Produtos existentes cujos SKUs aparecem no ficheiro
   produtosPorSku: Map<string, { id: string; codigoBarras: string | null }>
   // SKU dono de cada código de barras já registado na BD
@@ -218,11 +220,35 @@ export async function lerFicheiro(buffer: ArrayBuffer): Promise<LinhaCrua[]> {
 // Valida todas as linhas contra o schema e o contexto da BD e monta o
 // plano de importação (agrupado por SKU). Não toca na base de dados.
 export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): PlanoImportacao {
-  const categoriaPorNome = new Map<string, { id: string; nome: string }[]>()
+  // Grupos (categorias pai) por nome normalizado; subcategorias por
+  // (grupoId, nome). O nome do grupo desambigua subcategorias homónimas.
+  // As chaves normalizadas podem COLIDIR ("Chá" e "Cha" na mesma chave):
+  // guarda-se sempre a lista completa e o nome EXATO desempata; sem
+  // desempate a linha falha com erro explícito — nunca primeiro-match.
+  const gruposPorNome = new Map<string, { id: string; nome: string }[]>()
+  const subsPorGrupo = new Map<string, Map<string, { id: string; nome: string }[]>>()
+  const grupoDaSub = new Map<string, string[]>() // nome da sub → nomes dos grupos onde existe
+  const grupoPorId = new Map(ctx.categorias.filter(c => !c.parentCategoryId).map(c => [c.id, c]))
   for (const cat of ctx.categorias) {
     const chave = chaveNome(cat.nome)
-    categoriaPorNome.set(chave, [...(categoriaPorNome.get(chave) ?? []), cat])
+    if (!cat.parentCategoryId) {
+      gruposPorNome.set(chave, [...(gruposPorNome.get(chave) ?? []), cat])
+    } else {
+      const mapa = subsPorGrupo.get(cat.parentCategoryId) ?? new Map<string, { id: string; nome: string }[]>()
+      mapa.set(chave, [...(mapa.get(chave) ?? []), cat])
+      subsPorGrupo.set(cat.parentCategoryId, mapa)
+      const pai = grupoPorId.get(cat.parentCategoryId)
+      if (pai) grupoDaSub.set(chave, [...(grupoDaSub.get(chave) ?? []), pai.nome])
+    }
   }
+
+  // Desempate por nome exato quando a normalização é ambígua
+  const resolverExato = (matches: { id: string; nome: string }[], input: string) => {
+    if (matches.length === 1) return matches[0]
+    const exatos = matches.filter(m => m.nome === input)
+    return exatos.length === 1 ? exatos[0] : null
+  }
+  const listarNomes = (matches: { nome: string }[]) => matches.map(m => `"${m.nome}"`).join(' e ')
 
   const resultados: ResultadoLinha[] = []
   const porSku = new Map<string, { primeiro: LinhaImportacao & { categoriaId: string }; stocks: StockPlaneado[] }>()
@@ -249,7 +275,8 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
       nome: v.nome.trim(),
       sku: v.sku.trim().toUpperCase(),
       codigoBarras: v.codigo_barras.trim() || null,
-      categoria: v.categoria.trim(),
+      grupo: v.grupo.trim(),
+      subcategoria: v.subcategoria.trim() || null,
       descricao: v.descricao.trim() || null,
       unidade: v.unidade.trim().toUpperCase(),
       canal: v.canal.trim().toUpperCase(),
@@ -268,13 +295,37 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
 
     // Grupo → subcategoria: o produto aponta para a subcategoria se
     // indicada (tem de pertencer ao grupo), senão para o próprio grupo.
-    // Categoria: tem de existir (e ser inequívoca)
     let categoriaId = ''
-    if (candidato.categoria) {
-      const matches = categoriaPorNome.get(chaveNome(candidato.categoria)) ?? []
-      if (matches.length === 0) erros.push(`categoria "${candidato.categoria}" não existe — crie-a primeiro em Stock → Categorias`)
-      else if (matches.length > 1) erros.push(`categoria "${candidato.categoria}" é ambígua (${matches.length} categorias com este nome)`)
-      else categoriaId = matches[0].id
+    if (candidato.grupo) {
+      const matchesGrupo = gruposPorNome.get(chaveNome(candidato.grupo)) ?? []
+      const grupo = resolverExato(matchesGrupo, candidato.grupo)
+      if (matchesGrupo.length === 0) {
+        const comoSub = grupoDaSub.get(chaveNome(candidato.grupo))
+        erros.push(
+          comoSub
+            ? `"${candidato.grupo}" é uma subcategoria de "${comoSub.join('" / "')}" — preencha grupo=${comoSub[0]} e subcategoria=${candidato.grupo}`
+            : `grupo "${candidato.grupo}" não existe — crie-o primeiro em Stock → Categorias`
+        )
+      } else if (!grupo) {
+        erros.push(`grupo ambíguo: "${candidato.grupo}" corresponde a ${listarNomes(matchesGrupo)} — corrija as categorias na UI ou escreva o nome exato`)
+      } else if (candidato.subcategoria) {
+        const matchesSub = subsPorGrupo.get(grupo.id)?.get(chaveNome(candidato.subcategoria)) ?? []
+        const sub = resolverExato(matchesSub, candidato.subcategoria)
+        if (matchesSub.length === 0) {
+          const noutroGrupo = grupoDaSub.get(chaveNome(candidato.subcategoria))
+          erros.push(
+            noutroGrupo
+              ? `subcategoria "${candidato.subcategoria}" não pertence ao grupo "${grupo.nome}" (existe em "${noutroGrupo.join('" / "')}")`
+              : `subcategoria "${candidato.subcategoria}" não existe no grupo "${grupo.nome}" — crie-a primeiro em Stock → Categorias`
+          )
+        } else if (!sub) {
+          erros.push(`subcategoria ambígua: "${candidato.subcategoria}" corresponde a ${listarNomes(matchesSub)} no grupo "${grupo.nome}" — corrija as categorias na UI ou escreva o nome exato`)
+        } else {
+          categoriaId = sub.id
+        }
+      } else {
+        categoriaId = grupo.id
+      }
     }
 
     const registarResultado = (acao: ResultadoLinha['acao']) => {
@@ -316,7 +367,7 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
       const camposProduto: [string, string | boolean | null, string | boolean | null][] = [
         ['nome', p.nome, linha.nome],
         ['codigo_barras', p.codigoBarras, linha.codigoBarras],
-        ['categoria', p.categoriaId, categoriaId],
+        ['grupo/subcategoria', p.categoriaId, categoriaId],
         ['unidade', p.unidade, linha.unidade],
         ['ingrediente', p.isIngrediente, linha.isIngrediente],
         ['ativo', p.ativo, linha.ativo],
@@ -396,20 +447,28 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
 // ============================================================
 
 const EXEMPLOS: string[][] = [
-  ['Cerveja Dos M 330ml', 'CERV-2M-330', '6291041500213', 'Cervejas', '', 'UNIDADE', 'RESTAURANTE', '150,00', '80,00', '48', '12', 'NÃO', 'SIM'],
-  ['Cerveja Dos M 330ml', 'CERV-2M-330', '6291041500213', 'Cervejas', '', 'UNIDADE', 'BOTTLESTORE', '120,00', '80,00', '120', '24', 'NÃO', 'SIM'],
-  ['Refresco Coca-Cola 350ml', 'REFR-COCA-350', '', 'Refrescos', '', 'UNIDADE', 'BOTTLESTORE', '90,00', '55,00', '60', '12', 'NÃO', 'SIM'],
-  ['Água Mineral 500ml', 'AGUA-MIN-500', '', 'Refrescos', '', 'UNIDADE', 'PISCINA', '80,00', '40,00', '24', '6', 'NÃO', 'SIM'],
-  ['Sumo Natural de Maracujá 300ml', 'SUMO-MARA-300', '', 'Sumos', 'Sumo natural feito na hora', 'UNIDADE', 'RESTAURANTE', '180,00', '', '0', '0', 'NÃO', 'SIM'],
-  ['Bifana no Pão', 'COM-BIF-001', '', 'Pratos Principais', 'Pão com bifana grelhada e molho da casa', 'PORCAO', 'RESTAURANTE', '250,00', '110,00', '0', '0', 'NÃO', 'SIM'],
-  ['Batatas Fritas (porção)', 'COM-BAT-001', '', 'Aperitivos', '', 'PORCAO', 'RESTAURANTE', '150,00', '60,00', '0', '0', 'NÃO', 'SIM'],
-  ['Whisky Jameson 750ml', 'WHIS-JAM-750', '', 'Whiskies', '', 'UNIDADE', 'BOTTLESTORE', '2500,00', '1800,00', '6', '2', 'NÃO', 'SIM'],
-  ['Frango Inteiro (ingrediente)', 'ING-FRANGO-KG', '', 'Comida', 'Ingrediente de cozinha — não aparece à venda', 'KG', 'RESTAURANTE', '0,00', '350,00', '10', '2', 'SIM', 'SIM'],
+  ['Cerveja Dos M 330ml', 'CERV-2M-330', '6291041500213', 'Bebidas Alcoólicas', 'Cervejas', '', 'UNIDADE', 'RESTAURANTE', '150,00', '80,00', '48', '12', 'NÃO', 'SIM'],
+  ['Cerveja Dos M 330ml', 'CERV-2M-330', '6291041500213', 'Bebidas Alcoólicas', 'Cervejas', '', 'UNIDADE', 'BOTTLESTORE', '120,00', '80,00', '120', '24', 'NÃO', 'SIM'],
+  ['Refresco Coca-Cola 350ml', 'REFR-COCA-350', '', 'Bebidas Não Alcoólicas', 'Refrescos', '', 'UNIDADE', 'BOTTLESTORE', '90,00', '55,00', '60', '12', 'NÃO', 'SIM'],
+  ['Água Mineral 500ml', 'AGUA-MIN-500', '', 'Bebidas Não Alcoólicas', 'Refrescos', '', 'UNIDADE', 'PISCINA', '80,00', '40,00', '24', '6', 'NÃO', 'SIM'],
+  ['Sumo Natural de Maracujá 300ml', 'SUMO-MARA-300', '', 'Bebidas Não Alcoólicas', 'Sumos', 'Sumo natural feito na hora', 'UNIDADE', 'RESTAURANTE', '180,00', '', '0', '0', 'NÃO', 'SIM'],
+  ['Bifana no Pão', 'COM-BIF-001', '', 'Comida', 'Pratos Principais', 'Pão com bifana grelhada e molho da casa', 'PORCAO', 'RESTAURANTE', '250,00', '110,00', '0', '0', 'NÃO', 'SIM'],
+  ['Batatas Fritas (porção)', 'COM-BAT-001', '', 'Comida', 'Aperitivos', '', 'PORCAO', 'RESTAURANTE', '150,00', '60,00', '0', '0', 'NÃO', 'SIM'],
+  ['Whisky Jameson 750ml', 'WHIS-JAM-750', '', 'Bebidas Alcoólicas', 'Whiskies', '', 'UNIDADE', 'BOTTLESTORE', '2500,00', '1800,00', '6', '2', 'NÃO', 'SIM'],
+  ['Frango Inteiro (ingrediente)', 'ING-FRANGO-KG', '', 'Comida', '', 'Ingrediente de cozinha — não aparece à venda', 'KG', 'RESTAURANTE', '0,00', '350,00', '10', '2', 'SIM', 'SIM'],
 ]
+
+export interface CategoriaTemplate {
+  nome: string
+  // null = grupo (categoria pai); preenchido = subcategoria desse grupo
+  parentNome: string | null
+}
 
 // Constrói o workbook do template com dropdowns alimentados pelas
 // categorias reais (passadas pelo endpoint a partir da BD).
-export function construirTemplate(nomesCategorias: string[]): ExcelJS.Workbook {
+export function construirTemplate(categorias: CategoriaTemplate[]): ExcelJS.Workbook {
+  const grupos = categorias.filter(c => !c.parentNome).map(c => c.nome)
+  const subs = categorias.filter(c => c.parentNome) as { nome: string; parentNome: string }[]
   const wb = new ExcelJS.Workbook()
   wb.creator = 'EL Globo'
 
@@ -428,9 +487,10 @@ export function construirTemplate(nomesCategorias: string[]): ExcelJS.Workbook {
   // Dropdowns (data validation) — as listas vivem na folha "Listas"
   const colIndex = (chave: string) => COLUNAS.findIndex(c => c.chave === chave) + 1
   const validacoes: { col: number; formula: string; erro: string }[] = [
-    { col: colIndex('categoria'), formula: `${SHEET_LISTAS}!$A$2:$A$${1 + Math.max(nomesCategorias.length, 1)}`, erro: 'Escolha uma categoria existente (folha Listas)' },
-    { col: colIndex('unidade'), formula: `${SHEET_LISTAS}!$B$2:$B$${1 + UNIDADES.length}`, erro: `Valores válidos: ${UNIDADES.join(', ')}` },
-    { col: colIndex('canal'), formula: `${SHEET_LISTAS}!$C$2:$C$${1 + CANAIS.length}`, erro: `Valores válidos: ${CANAIS.join(', ')}` },
+    { col: colIndex('grupo'), formula: `${SHEET_LISTAS}!$A$2:$A$${1 + Math.max(grupos.length, 1)}`, erro: 'Escolha um grupo existente (folha Listas)' },
+    { col: colIndex('subcategoria'), formula: `${SHEET_LISTAS}!$B$2:$B$${1 + Math.max(subs.length, 1)}`, erro: 'Escolha uma subcategoria do grupo (folha Listas) ou deixe em branco' },
+    { col: colIndex('unidade'), formula: `${SHEET_LISTAS}!$D$2:$D$${1 + UNIDADES.length}`, erro: `Valores válidos: ${UNIDADES.join(', ')}` },
+    { col: colIndex('canal'), formula: `${SHEET_LISTAS}!$E$2:$E$${1 + CANAIS.length}`, erro: `Valores válidos: ${CANAIS.join(', ')}` },
     { col: colIndex('ingrediente'), formula: '"SIM,NÃO"', erro: 'SIM ou NÃO' },
     { col: colIndex('ativo'), formula: '"SIM,NÃO"', erro: 'SIM ou NÃO' },
   ]
@@ -456,7 +516,8 @@ export function construirTemplate(nomesCategorias: string[]): ExcelJS.Workbook {
   wsInstr.addRow([])
   const notas = [
     'Cada linha da folha "Produtos" é um produto NUM canal. Para vender o mesmo produto em 2 canais, repita o SKU em 2 linhas mudando o canal e o preço.',
-    'O SKU é a chave: SKU novo cria o produto; SKU existente atualiza nome, categoria, preços e stock mínimo.',
+    'O SKU é a chave: SKU novo cria o produto; SKU existente atualiza nome, grupo/subcategoria, preços e stock mínimo.',
+    'Grupo e subcategoria: o grupo (Bebidas Alcoólicas, Comida…) é obrigatório; a subcategoria (Cervejas, Sumos…) é opcional e tem de pertencer ao grupo indicado — em branco o produto fica genérico do grupo. A folha "Listas" mostra a que grupo pertence cada subcategoria.',
     'O stock_inicial só é aplicado a produtos/canais novos. Para repor stock de produtos existentes use Stock → Entradas (fica no histórico de movimentações).',
     'Preços em MT, sem separador de milhares: escreva 1500,00 ou 1500.00 — nunca 1.500,00.',
     'Em atualizações (SKU existente), as colunas opcionais deixadas em branco (codigo_barras, descricao, preco_custo) mantêm o valor que já está no sistema — não apagam nada.',
@@ -481,16 +542,20 @@ export function construirTemplate(nomesCategorias: string[]): ExcelJS.Workbook {
   // ---- Sheet 3: Listas (fontes dos dropdowns) ----
   const wsListas = wb.addWorksheet(SHEET_LISTAS)
   wsListas.columns = [
-    { header: 'categorias', width: 28 },
+    { header: 'grupos', width: 28 },
+    { header: 'subcategorias', width: 24 },
+    { header: 'pertence_ao_grupo', width: 28 },
     { header: 'unidades', width: 16 },
     { header: 'canais', width: 16 },
     { header: 'sim_nao', width: 10 },
   ]
   wsListas.getRow(1).font = { bold: true }
-  const maxLen = Math.max(nomesCategorias.length, UNIDADES.length, CANAIS.length, 2)
+  const maxLen = Math.max(grupos.length, subs.length, UNIDADES.length, CANAIS.length, 2)
   for (let i = 0; i < maxLen; i++) {
     wsListas.addRow([
-      nomesCategorias[i] ?? '',
+      grupos[i] ?? '',
+      subs[i]?.nome ?? '',
+      subs[i]?.parentNome ?? '',
       UNIDADES[i] ?? '',
       CANAIS[i] ?? '',
       i === 0 ? 'SIM' : i === 1 ? 'NÃO' : '',

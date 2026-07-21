@@ -87,7 +87,7 @@ async function carregarContexto(linhasCruas: { valores: Record<string, string> }
   const codigosBarras = [...new Set(linhasCruas.map(l => l.valores.codigo_barras.trim()).filter(Boolean))]
 
   const [categorias, produtos, donosCodigoBarras] = await Promise.all([
-    prisma.categoria.findMany({ where: { ativo: true }, select: { id: true, nome: true } }),
+    prisma.categoria.findMany({ where: { ativo: true }, select: { id: true, nome: true, parentCategoryId: true } }),
     prisma.produto.findMany({
       where: { sku: { in: skus } },
       select: { id: true, sku: true, codigoBarras: true, stockCanais: { select: { canal: true } } },
