@@ -1,11 +1,11 @@
 'use client'
 
-import { useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useMemo, useState } from 'react'
 
 // Cardápio digital mobile-first (lido por QR code na mesa).
 // Consulta apenas — sem pedidos, sem login, zero botões de ação.
-// Navegação: chips sticky com scroll-spy (os chips saltam para a secção,
-// não filtram); a pesquisa mostra uma lista plana e desliga o scroll-spy.
+// Navegação hierárquica: chips de GRUPO; ao escolher um grupo surgem
+// os chips de SUBCATEGORIA. A pesquisa mostra uma lista plana.
 
 export type GrupoMenu = { id: string; nome: string }
 export type ItemMenu = {
@@ -99,12 +99,10 @@ const renderItem = (item: ItemMenu) =>
 
 export function MenuClient({ itens }: { itens: ItemMenu[] }) {
   const [pesquisa, setPesquisa] = useState('')
-  const [ativo, setAtivo] = useState<string | null>(null)
-  const headerRef = useRef<HTMLElement | null>(null)
-  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({})
-  const emVista = useRef(new Set<string>())
-  const bloqueio = useRef(false) // ignora o observer durante o smooth scroll pós-clique
-  const [offset, setOffset] = useState(170)
+  // Navegação hierárquica: grupo → subcategoria (chips dependentes).
+  // grupoAtivo = null → mostra todos os grupos empilhados.
+  const [grupoAtivo, setGrupoAtivo] = useState<string | null>(null)
+  const [subAtiva, setSubAtiva] = useState<string | null>(null)
 
   const termo = pesquisa.trim().toLowerCase()
 
@@ -114,10 +112,34 @@ export function MenuClient({ itens }: { itens: ItemMenu[] }) {
     [itens]
   )
 
-  // Grupo → subsecções (subcategorias como subtítulos, não chips)
-  const seccoesPorGrupo = useMemo(
-    () => grupos.map(g => {
-      const doGrupo = itens.filter(i => i.grupo.id === g.id)
+  // Subcategorias do grupo ativo — só aparecem depois de escolher o grupo
+  const subcategorias = useMemo(
+    () => grupoAtivo
+      ? Array.from(new Map(
+          itens
+            .filter(i => i.grupo.id === grupoAtivo && i.sub)
+            .map(i => [i.sub!.id, i.sub!])
+        ).values())
+      : [],
+    [itens, grupoAtivo]
+  )
+
+  // Itens visíveis (fora da pesquisa), respeitando grupo/subcategoria
+  const itensVisiveis = useMemo(
+    () => itens.filter(i => {
+      if (grupoAtivo && i.grupo.id !== grupoAtivo) return false
+      if (subAtiva && i.sub?.id !== subAtiva) return false
+      return true
+    }),
+    [itens, grupoAtivo, subAtiva]
+  )
+
+  // Agrupa os itens visíveis por grupo → subsecções (subcategorias como
+  // subtítulos). Com um grupo escolhido, fica só uma secção.
+  const seccoesPorGrupo = useMemo(() => {
+    const visiveis = grupoAtivo ? grupos.filter(g => g.id === grupoAtivo) : grupos
+    return visiveis.map(g => {
+      const doGrupo = itensVisiveis.filter(i => i.grupo.id === g.id)
       const subMap = new Map<string, { sub: GrupoMenu | null; itens: ItemMenu[] }>()
       for (const i of doGrupo) {
         const k = i.sub?.id ?? '__sem-sub'
@@ -125,9 +147,8 @@ export function MenuClient({ itens }: { itens: ItemMenu[] }) {
         subMap.get(k)!.itens.push(i)
       }
       return { grupo: g, subseccoes: Array.from(subMap.values()) }
-    }),
-    [grupos, itens]
-  )
+    }).filter(s => s.subseccoes.length > 0)
+  }, [grupos, itensVisiveis, grupoAtivo])
 
   const resultados = useMemo(
     () => termo
@@ -137,70 +158,15 @@ export function MenuClient({ itens }: { itens: ItemMenu[] }) {
     [itens, termo]
   )
 
-  // Altura real do header sticky → offset do scroll-spy e do scrollMarginTop
-  useLayoutEffect(() => {
-    const medir = () => setOffset(headerRef.current?.offsetHeight ?? 170)
-    medir()
-    window.addEventListener('resize', medir)
-    return () => window.removeEventListener('resize', medir)
-  }, [termo])
-
-  // Scroll-spy: destaca o primeiro grupo (em ordem do documento) visível
-  // na zona de leitura (entre o header e ~45% do viewport)
-  useEffect(() => {
-    if (termo) { emVista.current.clear(); return }
-    const obs = new IntersectionObserver(entries => {
-      for (const e of entries) {
-        const id = e.target.id.replace('sec-', '')
-        if (e.isIntersecting) emVista.current.add(id)
-        else emVista.current.delete(id)
-      }
-      if (bloqueio.current) return
-      const primeiro = grupos.find(g => emVista.current.has(g.id))
-      if (primeiro) setAtivo(primeiro.id)
-    }, { rootMargin: `-${offset}px 0px -55% 0px` })
-    for (const g of grupos) {
-      const el = document.getElementById(`sec-${g.id}`)
-      if (el) obs.observe(el)
-    }
-    return () => obs.disconnect()
-  }, [termo, grupos, offset])
-
-  // No fundo da página, ativa a última secção (pode ser curta demais
-  // para alguma vez entrar na zona de leitura do observer)
-  useEffect(() => {
-    if (termo) return
-    const aoScroll = () => {
-      if (bloqueio.current) return
-      if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 24) {
-        const ultimo = grupos[grupos.length - 1]
-        if (ultimo) setAtivo(ultimo.id)
-      }
-    }
-    window.addEventListener('scroll', aoScroll, { passive: true })
-    return () => window.removeEventListener('scroll', aoScroll)
-  }, [termo, grupos])
-
-  const chipAtivo = ativo ?? grupos[0]?.id ?? null
-
-  // Mantém o chip destacado visível na barra horizontal
-  useEffect(() => {
-    if (!chipAtivo) return
-    chipRefs.current[chipAtivo]?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' })
-  }, [chipAtivo])
-
-  function irParaGrupo(id: string) {
-    setAtivo(id)
-    bloqueio.current = true
-    window.setTimeout(() => { bloqueio.current = false }, 700)
-    document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth' })
+  function escolherGrupo(id: string | null) {
+    setGrupoAtivo(id)
+    setSubAtiva(null)
   }
 
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--color-bg-base)', paddingBottom: '48px' }}>
       {/* ─── Cabeçalho sticky: brand + pesquisa + chips ───────── */}
       <header
-        ref={headerRef}
         style={{
           position: 'sticky', top: 0, zIndex: 20,
           background: 'rgba(10, 15, 30, 0.92)',
@@ -239,21 +205,56 @@ export function MenuClient({ itens }: { itens: ItemMenu[] }) {
             />
           </div>
 
-          {/* Chips de navegação (scroll-spy) — escondidos durante a pesquisa */}
+          {/* Chips de GRUPO — escondidos durante a pesquisa. As subcategorias
+              só aparecem depois de escolher um grupo. */}
           {!termo && grupos.length > 0 && (
-            <nav className="chips-scroll" style={{ marginTop: '10px' }} aria-label="Categorias">
-              {grupos.map(g => (
+            <>
+              <nav className="chips-scroll" style={{ marginTop: '10px' }} aria-label="Categorias">
                 <button
-                  key={g.id}
-                  ref={el => { chipRefs.current[g.id] = el }}
-                  onClick={() => irParaGrupo(g.id)}
-                  className={`btn btn-sm btn-touch ${chipAtivo === g.id ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => escolherGrupo(null)}
+                  className={`btn btn-sm btn-touch ${!grupoAtivo ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
                 >
-                  {ICONE_GRUPO[g.nome] ?? ''} {g.nome}
+                  Tudo
                 </button>
-              ))}
-            </nav>
+                {grupos.map(g => (
+                  <button
+                    key={g.id}
+                    onClick={() => escolherGrupo(grupoAtivo === g.id ? null : g.id)}
+                    className={`btn btn-sm btn-touch ${grupoAtivo === g.id ? 'btn-primary' : 'btn-secondary'}`}
+                    style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
+                  >
+                    {ICONE_GRUPO[g.nome] ?? ''} {g.nome}
+                  </button>
+                ))}
+              </nav>
+
+              {subcategorias.length > 0 && (
+                <nav
+                  className="chips-scroll"
+                  style={{ marginTop: '8px', paddingLeft: '8px', borderLeft: '3px solid var(--color-accent-muted)' }}
+                  aria-label="Subcategorias"
+                >
+                  <button
+                    onClick={() => setSubAtiva(null)}
+                    className={`btn btn-sm btn-touch ${!subAtiva ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
+                  >
+                    Todas
+                  </button>
+                  {subcategorias.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => setSubAtiva(subAtiva === s.id ? null : s.id)}
+                      className={`btn btn-sm btn-touch ${subAtiva === s.id ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ borderRadius: '999px', whiteSpace: 'nowrap' }}
+                    >
+                      {s.nome}
+                    </button>
+                  ))}
+                </nav>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -261,7 +262,7 @@ export function MenuClient({ itens }: { itens: ItemMenu[] }) {
       {/* ─── Conteúdo ─────────────────────────────────────────── */}
       <main style={{ padding: '16px', maxWidth: '720px', margin: '0 auto' }}>
         {termo ? (
-          /* Modo pesquisa: lista plana, sem scroll-spy */
+          /* Modo pesquisa: lista plana */
           resultados.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--color-text-muted)' }}>
               <div style={{ fontSize: '40px', marginBottom: '8px' }}>🔍</div>
@@ -274,11 +275,7 @@ export function MenuClient({ itens }: { itens: ItemMenu[] }) {
           )
         ) : (
           seccoesPorGrupo.map(({ grupo, subseccoes }) => (
-            <section
-              key={grupo.id}
-              id={`sec-${grupo.id}`}
-              style={{ scrollMarginTop: `${offset + 8}px`, marginBottom: '32px' }}
-            >
+            <section key={grupo.id} style={{ marginBottom: '32px' }}>
               <h2 style={{
                 fontSize: '18px', fontWeight: 800, letterSpacing: '-0.01em',
                 margin: '8px 0 14px', display: 'flex', alignItems: 'center', gap: '10px',

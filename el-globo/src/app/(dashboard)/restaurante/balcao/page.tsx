@@ -21,7 +21,7 @@ export default async function BalcaoPage() {
         stockCanais: { some: { canal: 'RESTAURANTE', ativo: true } },
       },
       include: {
-        categoria: true,
+        categoria: { include: { parent: { select: { id: true, nome: true, icone: true } } } },
         stockCanais: { where: { canal: 'RESTAURANTE', ativo: true } },
         // Stock da caixa-pai no mesmo canal — o auto-unboxing da venda
         // permite vender unidades enquanto houver caixas fechadas
@@ -67,7 +67,15 @@ export default async function BalcaoPage() {
         stockPai ? Number(stockPai.stockAtual) : null,
         p.fatorConversao,
       ),
-      categoria: { id: p.categoria.id, nome: p.categoria.nome, icone: p.categoria.icone },
+      categoria: {
+        id: p.categoria.id,
+        nome: p.categoria.nome,
+        icone: p.categoria.icone,
+        parentCategoryId: p.categoria.parentCategoryId,
+        parent: p.categoria.parent
+          ? { id: p.categoria.parent.id, nome: p.categoria.parent.nome, icone: p.categoria.parent.icone }
+          : null,
+      },
     }
   })
 

@@ -46,7 +46,7 @@ export default async function ComandaAbaPage({ params }: { params: Promise<{ aba
         stockCanais: { some: { canal: { in: CANAIS_PISCINA }, ativo: true } },
       },
       include: {
-        categoria: true,
+        categoria: { include: { parent: { select: { id: true, nome: true } } } },
         stockCanais: { where: { canal: { in: CANAIS_PISCINA }, ativo: true } },
         // Stock da caixa-pai no mesmo canal — o auto-unboxing da venda
         // permite vender unidades enquanto houver caixas fechadas

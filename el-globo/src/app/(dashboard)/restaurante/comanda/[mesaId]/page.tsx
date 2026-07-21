@@ -35,7 +35,7 @@ export default async function ComandaPage({ params }: { params: Promise<{ mesaId
         stockCanais: { some: { canal: 'RESTAURANTE', ativo: true } },
       },
       include: {
-        categoria: true,
+        categoria: { include: { parent: { select: { id: true, nome: true } } } },
         stockCanais: { where: { canal: 'RESTAURANTE', ativo: true } },
         // Stock da caixa-pai no mesmo canal — o auto-unboxing da venda
         // permite vender unidades enquanto houver caixas fechadas

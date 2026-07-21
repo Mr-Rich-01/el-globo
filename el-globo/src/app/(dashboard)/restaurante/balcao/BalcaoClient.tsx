@@ -15,7 +15,11 @@ interface Produto {
   disponivel: number
   imagemUrl: string | null
   codigoBarras: string | null
-  categoria: { id: string; nome: string; icone: string | null }
+  categoria: {
+    id: string; nome: string; icone: string | null
+    parentCategoryId: string | null
+    parent: { id: string; nome: string; icone: string | null } | null
+  }
 }
 // disponivel: limitado pelo ingrediente mais escasso; null = sem receita (sem limite)
 interface FichaTecnica { id: string; nome: string; precoVenda: number; disponivel: number | null }
@@ -29,6 +33,9 @@ type MetodoPagamento = 'DINHEIRO' | 'CARTAO' | 'MOBILE_MONEY'
 
 const NOTAS_RAPIDAS = [100, 200, 500, 1000, 2000]
 
+// Grupo virtual do Bar — mostra apenas fichas técnicas (não é categoria real)
+const GRUPO_FICHAS = '__fichas'
+
 export function BalcaoClient({ produtos, fichas, operador }: {
   produtos: Produto[]; fichas: FichaTecnica[]; operador: string
 }) {
@@ -36,7 +43,10 @@ export function BalcaoClient({ produtos, fichas, operador }: {
   const [isPending, startTransition] = useTransition()
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([])
   const [pesquisa, setPesquisa] = useState('')
-  const [categoriaAtiva, setCategoriaAtiva] = useState<string>('Tudo')
+  // Navegação hierárquica: grupo pai → subcategoria (chips dependentes).
+  // grupoAtivo = null → Tudo; GRUPO_FICHAS → só fichas técnicas do Bar.
+  const [grupoAtivo, setGrupoAtivo] = useState<string | null>(null)
+  const [subAtiva, setSubAtiva] = useState<string | null>(null)
   const [nomeCliente, setNomeCliente] = useState('')
   const [metodoPag, setMetodoPag] = useState<MetodoPagamento>('DINHEIRO')
   const [valorRecebido, setValorRecebido] = useState('')
@@ -48,17 +58,34 @@ export function BalcaoClient({ produtos, fichas, operador }: {
   const [pedidoPorCobrar, setPedidoPorCobrar] = useState<string | null>(null)
   const pesquisaRef = useRef<HTMLInputElement>(null)
 
-  const categorias = ['Tudo', 'Fichas Técnicas', ...Array.from(new Set(produtos.map(p => p.categoria.nome)))]
+  // Grupo de um produto = categoria pai (ou a própria, se não tiver pai)
+  const grupoDe = (p: Produto) => p.categoria.parent ?? p.categoria
+  // Grupos pai presentes no catálogo, na ordem em que aparecem
+  const grupos = Array.from(
+    new Map(produtos.map(p => [grupoDe(p).id, grupoDe(p)])).values()
+  )
+  // Subcategorias do grupo ativo — só aparecem depois de escolher o grupo
+  const subcategorias = grupoAtivo && grupoAtivo !== GRUPO_FICHAS
+    ? Array.from(
+        new Map(
+          produtos
+            .filter(p => p.categoria.parentCategoryId === grupoAtivo)
+            .map(p => [p.categoria.id, p.categoria])
+        ).values()
+      )
+    : []
 
   const produtosFiltrados = produtos.filter(p => {
-    const matchPesquisa = p.nome.toLowerCase().includes(pesquisa.toLowerCase())
-    const matchCategoria = categoriaAtiva === 'Tudo' || p.categoria.nome === categoriaAtiva
-    return matchPesquisa && matchCategoria
+    if (!p.nome.toLowerCase().includes(pesquisa.toLowerCase())) return false
+    if (grupoAtivo === null) return true          // Tudo
+    if (grupoAtivo === GRUPO_FICHAS) return false // grupo Bar mostra só fichas
+    if (grupoDe(p).id !== grupoAtivo) return false
+    return !subAtiva || p.categoria.id === subAtiva
   })
 
   const fichasFiltradas = fichas.filter(f =>
     f.nome.toLowerCase().includes(pesquisa.toLowerCase()) &&
-    (categoriaAtiva === 'Tudo' || categoriaAtiva === 'Fichas Técnicas')
+    (grupoAtivo === null || grupoAtivo === GRUPO_FICHAS)
   )
 
   function qtdNoCarrinho(tipo: string, id: string) {
@@ -239,18 +266,59 @@ export function BalcaoClient({ produtos, fichas, operador }: {
           autoFocus
         />
 
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px' }}>
-          {categorias.map(cat => (
+        {/* Chips de GRUPO (categorias pai). As subcategorias só aparecem
+            depois de escolher um grupo. */}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: subcategorias.length > 0 ? '8px' : '16px' }}>
+          <button
+            className={`btn btn-sm ${!grupoAtivo ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => { setGrupoAtivo(null); setSubAtiva(null) }}
+            style={{ padding: '4px 12px' }}
+          >
+            Tudo
+          </button>
+          {fichas.length > 0 && (
             <button
-              key={cat}
-              className={`btn btn-sm ${categoriaAtiva === cat ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setCategoriaAtiva(cat)}
+              className={`btn btn-sm ${grupoAtivo === GRUPO_FICHAS ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => { setGrupoAtivo(grupoAtivo === GRUPO_FICHAS ? null : GRUPO_FICHAS); setSubAtiva(null) }}
               style={{ padding: '4px 12px' }}
             >
-              {cat}
+              🍸 Fichas Técnicas
+            </button>
+          )}
+          {grupos.map(g => (
+            <button
+              key={g.id}
+              className={`btn btn-sm ${grupoAtivo === g.id ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => { setGrupoAtivo(grupoAtivo === g.id ? null : g.id); setSubAtiva(null) }}
+              style={{ padding: '4px 12px' }}
+            >
+              {g.nome}
             </button>
           ))}
         </div>
+
+        {/* Chips de SUBCATEGORIA — dependentes do grupo escolhido */}
+        {subcategorias.length > 0 && (
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '16px', paddingLeft: '8px', borderLeft: '3px solid var(--color-accent-muted)' }}>
+            <button
+              className={`btn btn-sm ${!subAtiva ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setSubAtiva(null)}
+              style={{ fontSize: '12px' }}
+            >
+              Todas
+            </button>
+            {subcategorias.map(s => (
+              <button
+                key={s.id}
+                className={`btn btn-sm ${subAtiva === s.id ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSubAtiva(subAtiva === s.id ? null : s.id)}
+                style={{ fontSize: '12px' }}
+              >
+                {s.nome}
+              </button>
+            ))}
+          </div>
+        )}
 
         {fichasFiltradas.length > 0 && (
           <>
