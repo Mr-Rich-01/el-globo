@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { stockAbaixoMinimo } from '@/lib/stock-alerta'
 import { Combobox } from '@/components/Combobox'
 
@@ -468,6 +469,9 @@ export function ProdutosClient({ role, canais }: Props) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {role === 'ADMIN' && (
+            <Link href="/stock/produtos/importar" className="btn btn-secondary">📥 Importar Excel</Link>
+          )}
           {podeTransferir && canais.length >= 2 && (
             <button onClick={() => abrirTransferencia()} className="btn btn-secondary">🔁 Transferir Stock</button>
           )}
