@@ -484,7 +484,9 @@ export function ProdutosClient({ role, canais, filtros }: Props) {
             Cada canal tem o seu próprio preço e stock — o restaurante pode vender mais caro que a loja.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {/* marginLeft:auto mantém os botões à direita mesmo quando o
+            cabeçalho quebra de linha — alinhados por cima dos filtros da toolbar. */}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginLeft: 'auto' }}>
           {role === 'ADMIN' && (
             <Link href="/stock/produtos/importar" className="btn btn-secondary">📥 Importar Excel</Link>
           )}
