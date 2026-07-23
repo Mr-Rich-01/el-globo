@@ -69,9 +69,14 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: unknown) {
     console.error('Erro na importação de produtos:', error)
+    // Colisão benigna: outra importação/utilizador criou entretanto o mesmo
+    // SKU, código de barras ou par (produto, canal). A constraint única
+    // (stock_canal_produto_id_canal_key, users_email_key, etc.) disparou e a
+    // transação inteira reverteu — nada foi gravado, nenhum movimento de
+    // stock duplicado. Devolve 409 (não 500) para o utilizador repetir.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(
-        { erro: 'Conflito de SKU/código de barras criado entretanto por outro utilizador — repita a pré-visualização. Nada foi gravado.' },
+        { erro: 'Conflito de SKU, código de barras ou canal criado entretanto por outra importação — repita a pré-visualização. Nada foi gravado.' },
         { status: 409 }
       )
     }
