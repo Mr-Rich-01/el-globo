@@ -149,7 +149,7 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
             value={filtros.canal}
             onChange={e => aplicar({ canal: e.target.value })}
             aria-label="Filtrar por canal"
-            style={ALTURA_TOQUE}
+            style={{ ...ALTURA_TOQUE, width: 'auto' }}
           >
             <option value="">Todos os canais</option>
             {canais.map(c => <option key={c} value={c}>{CANAL_LABEL[c]}</option>)}
@@ -161,7 +161,7 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
           value={filtros.ativo}
           onChange={e => aplicar({ ativo: e.target.value })}
           aria-label="Filtrar por estado"
-          style={ALTURA_TOQUE}
+          style={{ ...ALTURA_TOQUE, width: 'auto' }}
         >
           <option value="true">Só ativos</option>
           <option value="false">Só inativos</option>
