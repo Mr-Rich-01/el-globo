@@ -41,6 +41,82 @@ export interface LinhaExport {
   ativo: boolean
 }
 
+// Shape mínimo que o mapeamento precisa. Os campos Decimal do Prisma
+// entram como `unknown` — só se convertem a Number na montagem da célula.
+export interface StockCanalExport {
+  canal: string
+  precoVenda: unknown
+  precoCusto: unknown
+  stockAtual: unknown
+  stockMinimo: unknown
+}
+export interface ProdutoExport {
+  nome: string
+  sku: string | null
+  codigoBarras: string | null
+  descricao: string | null
+  unidadeMedida: string
+  isIngrediente: boolean
+  ativo: boolean
+  categoria: { nome: string; parentCategoryId: string | null; parent: { nome: string } | null }
+  stockCanais: StockCanalExport[]
+}
+
+// Converte os produtos já filtrados (com categoria.parent e as linhas de
+// stock dos canais acessíveis) nas linhas do ficheiro, ordenadas por
+// grupo → subcategoria → nome (canal como desempate estável das linhas
+// multi-canal). Um produto SEM linha de canal sai com `canal` vazio — não
+// se omite. Partilhado pela route e pela verificação de aceitação.
+export function montarLinhasExport(produtos: ProdutoExport[]): LinhaExport[] {
+  const linhas: LinhaExport[] = []
+  for (const p of produtos) {
+    const temPai = p.categoria.parentCategoryId != null
+    // grupo = categoria pai (ou a própria, se for grupo de topo);
+    // subcategoria = a própria categoria quando tem pai.
+    const grupo = temPai ? (p.categoria.parent?.nome ?? '') : p.categoria.nome
+    const subcategoria = temPai ? p.categoria.nome : ''
+    const base = {
+      nome: p.nome,
+      sku: p.sku,
+      codigoBarras: p.codigoBarras,
+      grupo,
+      subcategoria,
+      descricao: p.descricao,
+      unidade: p.unidadeMedida,
+      isIngrediente: p.isIngrediente,
+      ativo: p.ativo,
+    }
+
+    if (p.stockCanais.length === 0) {
+      linhas.push({ ...base, canal: '', precoVenda: null, precoCusto: null, stockInicial: null, stockMinimo: null })
+      continue
+    }
+
+    for (const sc of p.stockCanais) {
+      linhas.push({
+        ...base,
+        canal: sc.canal,
+        // Decimal → Number só aqui, na montagem da célula; sem aritmética.
+        precoVenda: Number(sc.precoVenda),
+        precoCusto: sc.precoCusto != null ? Number(sc.precoCusto) : null,
+        // A coluna stock_inicial carrega o SALDO ACTUAL; na reimportação é
+        // ignorada para pares existentes (ver importacao-produtos.ts).
+        stockInicial: Number(sc.stockAtual),
+        stockMinimo: Number(sc.stockMinimo),
+      })
+    }
+  }
+
+  linhas.sort((a, b) =>
+    a.grupo.localeCompare(b.grupo, 'pt') ||
+    a.subcategoria.localeCompare(b.subcategoria, 'pt') ||
+    a.nome.localeCompare(b.nome, 'pt') ||
+    a.canal.localeCompare(b.canal, 'pt')
+  )
+
+  return linhas
+}
+
 export function construirWorkbookExport(linhas: LinhaExport[]): ExcelJS.Workbook {
   const wb = new ExcelJS.Workbook()
   wb.creator = 'EL Globo'

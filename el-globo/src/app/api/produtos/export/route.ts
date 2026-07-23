@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSession, canaisPermitidos } from '@/lib/auth'
 import { construirWhereProdutos, resolverCanalFiltro } from '@/lib/produtos/filtros'
-import { construirWorkbookExport, type LinhaExport } from '@/lib/produtos/export-produtos'
+import { construirWorkbookExport, montarLinhasExport } from '@/lib/produtos/export-produtos'
 
 // Exportação da listagem de Produtos para .xlsx.
 // Aceita os mesmos filtros da listagem (q, canal, ativo) e exporta
@@ -34,55 +34,7 @@ export async function GET(request: NextRequest) {
     },
   })
 
-  const linhas: LinhaExport[] = []
-  for (const p of produtos) {
-    const temPai = p.categoria.parentCategoryId != null
-    // grupo = categoria pai (ou a própria, se for grupo de topo);
-    // subcategoria = a própria categoria quando tem pai.
-    const grupo = temPai ? (p.categoria.parent?.nome ?? '') : p.categoria.nome
-    const subcategoria = temPai ? p.categoria.nome : ''
-    const base = {
-      nome: p.nome,
-      sku: p.sku,
-      codigoBarras: p.codigoBarras,
-      grupo,
-      subcategoria,
-      descricao: p.descricao,
-      unidade: p.unidadeMedida as string,
-      isIngrediente: p.isIngrediente,
-      ativo: p.ativo,
-    }
-
-    if (p.stockCanais.length === 0) {
-      // Produto sem linha de canal (nos canais acessíveis): não se omite.
-      linhas.push({ ...base, canal: '', precoVenda: null, precoCusto: null, stockInicial: null, stockMinimo: null })
-      continue
-    }
-
-    for (const sc of p.stockCanais) {
-      linhas.push({
-        ...base,
-        canal: sc.canal,
-        // Decimal → Number só aqui, na montagem da célula; sem aritmética.
-        precoVenda: Number(sc.precoVenda),
-        precoCusto: sc.precoCusto != null ? Number(sc.precoCusto) : null,
-        // A coluna stock_inicial carrega o SALDO ACTUAL; na reimportação é
-        // ignorada para pares existentes (ver importacao-produtos.ts).
-        stockInicial: Number(sc.stockAtual),
-        stockMinimo: Number(sc.stockMinimo),
-      })
-    }
-  }
-
-  // Ordenação: grupo → subcategoria → nome (canal como desempate estável
-  // das linhas multi-canal do mesmo produto).
-  linhas.sort((a, b) =>
-    a.grupo.localeCompare(b.grupo, 'pt') ||
-    a.subcategoria.localeCompare(b.subcategoria, 'pt') ||
-    a.nome.localeCompare(b.nome, 'pt') ||
-    a.canal.localeCompare(b.canal, 'pt')
-  )
-
+  const linhas = montarLinhasExport(produtos)
   const wb = construirWorkbookExport(linhas)
   const buffer = await wb.xlsx.writeBuffer()
   const hoje = new Date().toISOString().slice(0, 10)
