@@ -137,6 +137,36 @@ async function main() {
   assert(c4.acao === 'CRIAR' && colisao.produtos.find(p => p.sku === 'C-004')!.categoriaId === 's-cha-acento',
     'colisão de subcategoria COM nome exato → desempata para a categoria certa')
 
+  // ---------- par SKU+canal duplicado dentro do ficheiro ----------
+  // Erro humano: exportar, duplicar uma linha à mão, reimportar. Tem de ser
+  // apanhado na validação (com as duas linhas), não só pela constraint única.
+  const CATS_DUP: CategoriaTemplate[] = [
+    { nome: 'Bebidas Alcoólicas', parentNome: null },
+    { nome: 'Cervejas', parentNome: 'Bebidas Alcoólicas' },
+  ]
+  const ctxDup: ContextoValidacao = {
+    categorias: [
+      { id: 'g1', nome: 'Bebidas Alcoólicas', parentCategoryId: null },
+      { id: 's1', nome: 'Cervejas', parentCategoryId: 'g1' },
+    ],
+    produtosPorSku: new Map(),
+    skuPorCodigoBarras: new Map(),
+    stockCanaisExistentes: new Map(),
+  }
+  const dup = await validar([
+    ['Cerveja Dos M', 'CERV-2M-330', '', 'Bebidas Alcoólicas', 'Cervejas', '', 'UNIDADE', 'BOTTLESTORE', '120', '', '10', '', '', ''],
+    ['Cerveja Dos M', 'CERV-2M-330', '', 'Bebidas Alcoólicas', 'Cervejas', '', 'UNIDADE', 'RESTAURANTE', '150', '', '5', '', '', ''],
+    ['Cerveja Dos M', 'CERV-2M-330', '', 'Bebidas Alcoólicas', 'Cervejas', '', 'UNIDADE', 'BOTTLESTORE', '120', '', '10', '', '', ''],
+  ], ctxDup, CATS_DUP)
+  const [d1, d2, d3] = dup.linhas
+  assert(d1.acao !== 'ERRO' && d2.acao !== 'ERRO', 'canais diferentes do mesmo SKU passam (não é duplicado)')
+  assert(
+    d3.acao === 'ERRO' &&
+    /^SKU_CANAL_DUPLICADO — linha \d+ duplica a linha \d+ \(SKU CERV-2M-330, canal BOTTLESTORE\)\.$/.test(d3.erros[0] ?? ''),
+    `par SKU+canal repetido → SKU_CANAL_DUPLICADO com as duas linhas (${d3.erros[0]})`
+  )
+  assert(dup.produtos.find(p => p.sku === 'CERV-2M-330')!.stocks.length === 2, 'plano não inclui o par duplicado (só os 2 canais distintos)')
+
   console.log(falhas === 0 ? '\nTODOS OS TESTES PASSARAM' : `\n${falhas} TESTE(S) FALHARAM`)
   process.exit(falhas === 0 ? 0 : 1)
 }

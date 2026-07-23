@@ -255,6 +255,10 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
   const resultados: ResultadoLinha[] = []
   const porSku = new Map<string, { primeiro: LinhaImportacao & { categoriaId: string }; stocks: StockPlaneado[] }>()
   const codigosBarrasNoFicheiro = new Map<string, string>() // codigoBarras → sku
+  // Primeira linha (nº no Excel) de cada par (SKU, canal) já visto no
+  // ficheiro — deteta duplicados exactos numa passagem única sobre todas as
+  // linhas, apontando as DUAS ocorrências.
+  const paresVistos = new Map<string, number>() // `${sku}:${canal}` → 1ª linha
 
   for (const crua of cruas) {
     const v = crua.valores
@@ -377,15 +381,27 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
       for (const [campo, a, b] of camposProduto) {
         if (a !== b) erros.push(`${campo} difere da linha anterior com o mesmo SKU — os dados do produto têm de ser iguais em todas as linhas`)
       }
-      if (grupo.stocks.some(s => s.canal === linha.canal)) {
-        erros.push(`canal ${linha.canal} repetido no ficheiro para o SKU ${linha.sku}`)
-      }
+    }
+
+    // Par (SKU, canal) duplicado dentro do PRÓPRIO ficheiro — o erro humano
+    // mais comum (exportar, duplicar uma linha à mão, reimportar). Apanhado
+    // aqui, com as DUAS linhas, em vez de rebentar só na constraint única
+    // (P2002 genérico, sem dizer onde). O 409 do P2002 continua a ser o
+    // backstop do caso genuinamente concorrente.
+    const parCanal = `${linha.sku}:${linha.canal}`
+    const linhaOriginal = paresVistos.get(parCanal)
+    if (linhaOriginal !== undefined) {
+      erros.push(`SKU_CANAL_DUPLICADO — linha ${crua.linha} duplica a linha ${linhaOriginal} (SKU ${linha.sku}, canal ${linha.canal}).`)
     }
 
     if (erros.length > 0) {
       registarResultado('ERRO')
       continue
     }
+
+    // Regista o par só quando a linha passa: uma linha rejeitada por outro
+    // motivo não fica marcada como "1ª ocorrência" de um futuro duplicado.
+    paresVistos.set(parCanal, crua.linha)
 
     // stock_inicial é um campo de ABERTURA: só faz sentido no instante em
     // que o par (SKU, canal) passa a existir. Se o par já existe, avisa e
