@@ -42,10 +42,13 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
 
   // Sincroniza o input com o `q` da URL apenas quando este muda por FORA
   // (voltar/avançar do browser), nunca com o eco do nosso próprio
-  // router.replace. `ultimoQ` guarda o último `q` que empurrámos; só se
-  // ajusta o input quando a prop diverge desse valor. Sem isto, um
-  // round-trip lento do debounce chega com o valor antigo e sobrescreve o
-  // que o utilizador escreveu entretanto (reversão de caracteres).
+  // router.replace. `ultimoQ` significa "último `q` que SEI estar reflectido
+  // no URL" — actualizado NOS DOIS lados: no push (em `aplicar`) e aqui, ao
+  // sincronizar a partir da prop. Se só fosse actualizado no push, o forward
+  // do browser para um termo já enviado (prop === ref) não re-sincronizava e
+  // o input ficava dessincronizado do URL. E como o push pré-regista o valor,
+  // um round-trip lento do debounce (prop chega com o valor antigo) não
+  // sobrescreve o que o utilizador escreveu entretanto (reversão de caracteres).
   const ultimoQ = useRef(filtros.q)
   if (filtros.q !== ultimoQ.current) {
     ultimoQ.current = filtros.q
