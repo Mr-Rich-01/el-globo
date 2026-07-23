@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { stockAbaixoMinimo } from '@/lib/stock-alerta'
 import { Combobox } from '@/components/Combobox'
+import { ProdutosToolbar } from '@/components/produtos/produtos-toolbar'
 
 type Canal = 'RESTAURANTE' | 'BOTTLESTORE' | 'PISCINA'
 const CANAIS: { id: Canal; label: string; icone: string }[] = [
@@ -66,12 +67,19 @@ type SaidaState = { produto: Produto; canal: Canal; quantidade: string; motivo: 
 // produto null = modal aberto pelo botão geral da página (escolhe-se no dropdown)
 type TransferenciaState = { produto: Produto | null; origem: Canal; destino: Canal; quantidade: string; preco: string }
 
+interface Filtros {
+  q: string
+  canal: string
+  ativo: string
+}
+
 interface Props {
   role: string
   canais: Canal[]
+  filtros: Filtros
 }
 
-export function ProdutosClient({ role, canais }: Props) {
+export function ProdutosClient({ role, canais, filtros }: Props) {
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [loading, setLoading] = useState(true)
@@ -97,13 +105,21 @@ export function ProdutosClient({ role, canais }: Props) {
   const [aExecutar, setAExecutar] = useState(false)
   const [sucesso, setSucesso] = useState<string | null>(null)
 
-  useEffect(() => { fetchData() }, [])
+  // Refaz a listagem sempre que os filtros da URL mudam. O canal vai como
+  // `canalFiltro` (não `canal`): na vista de gestão, `canal` está reservado
+  // à vista de venda achatada do POS/tablet.
+  useEffect(() => { fetchData() }, [filtros.q, filtros.canal, filtros.ativo])
 
   async function fetchData() {
     setLoading(true)
     try {
+      const params = new URLSearchParams()
+      if (filtros.q) params.set('q', filtros.q)
+      if (filtros.canal) params.set('canalFiltro', filtros.canal)
+      if (filtros.ativo) params.set('ativo', filtros.ativo)
+      const qs = params.toString()
       const [resProd, resCat] = await Promise.all([
-        fetch('/api/produtos'),
+        fetch(`/api/produtos${qs ? `?${qs}` : ''}`),
         fetch('/api/categorias'),
       ])
       const prod = await resProd.json()
@@ -485,8 +501,16 @@ export function ProdutosClient({ role, canais }: Props) {
         </div>
       )}
 
+      <ProdutosToolbar canais={canais} filtros={filtros} />
+
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}><div className="spinner" /></div>
+      ) : produtos.length === 0 ? (
+        <div className="card" style={{ padding: '48px 24px', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+          {filtros.q || filtros.canal || filtros.ativo !== 'true'
+            ? 'Nenhum produto corresponde aos filtros.'
+            : 'Ainda não há produtos. Crie o primeiro ou importe via Excel.'}
+        </div>
       ) : (
         <div className="card table-scroll">
           <table style={{ width: '100%', minWidth: '820px', borderCollapse: 'collapse', fontSize: '13px' }}>
