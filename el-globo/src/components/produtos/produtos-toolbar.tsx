@@ -40,12 +40,15 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [texto, setTexto] = useState(filtros.q)
 
-  // Sincroniza o input quando a URL muda por fora (voltar/avançar) — padrão
-  // de estado derivado da prop anterior, ajustado durante o render (evita
-  // setState dentro de useEffect e as renderizações em cascata que causa).
-  const [qUrl, setQUrl] = useState(filtros.q)
-  if (filtros.q !== qUrl) {
-    setQUrl(filtros.q)
+  // Sincroniza o input com o `q` da URL apenas quando este muda por FORA
+  // (voltar/avançar do browser), nunca com o eco do nosso próprio
+  // router.replace. `ultimoQ` guarda o último `q` que empurrámos; só se
+  // ajusta o input quando a prop diverge desse valor. Sem isto, um
+  // round-trip lento do debounce chega com o valor antigo e sobrescreve o
+  // que o utilizador escreveu entretanto (reversão de caracteres).
+  const ultimoQ = useRef(filtros.q)
+  if (filtros.q !== ultimoQ.current) {
+    ultimoQ.current = filtros.q
     setTexto(filtros.q)
   }
 
@@ -67,6 +70,10 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
   }
 
   function aplicar(overrides: Partial<Filtros>) {
+    // Regista o `q` que vamos empurrar: quando a prop regressar com este
+    // mesmo valor (eco do router.replace), o bloco de sincronização acima
+    // não re-sincroniza e não pisa o texto entretanto digitado.
+    ultimoQ.current = (overrides.q ?? filtros.q).trim()
     const qs = queryString(overrides)
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
   }
