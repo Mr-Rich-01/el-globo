@@ -113,8 +113,10 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
   const exportHref = `/api/produtos/export${exportQs ? `?${exportQs}` : ''}`
 
   return (
-    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
-      <div style={{ position: 'relative', flex: '1 1 260px', minWidth: '220px' }}>
+    <div style={{ display: 'flex', gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
+      {/* Pesquisa: cresce até um limite para não se esticar por toda a
+          largura no desktop; abaixo disso ocupa a linha inteira. */}
+      <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: '440px', minWidth: '200px' }}>
         <input
           ref={inputRef}
           className="input"
@@ -138,38 +140,42 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
         )}
       </div>
 
-      {canais.length > 1 && (
+      {/* Filtros + exportação agrupados e alinhados à direita (o espaço
+          livre fica entre a pesquisa e este grupo, não dentro da pesquisa). */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginLeft: 'auto' }}>
+        {canais.length > 1 && (
+          <select
+            className="input"
+            value={filtros.canal}
+            onChange={e => aplicar({ canal: e.target.value })}
+            aria-label="Filtrar por canal"
+            style={ALTURA_TOQUE}
+          >
+            <option value="">Todos os canais</option>
+            {canais.map(c => <option key={c} value={c}>{CANAL_LABEL[c]}</option>)}
+          </select>
+        )}
+
         <select
           className="input"
-          value={filtros.canal}
-          onChange={e => aplicar({ canal: e.target.value })}
-          aria-label="Filtrar por canal"
+          value={filtros.ativo}
+          onChange={e => aplicar({ ativo: e.target.value })}
+          aria-label="Filtrar por estado"
           style={ALTURA_TOQUE}
         >
-          <option value="">Todos os canais</option>
-          {canais.map(c => <option key={c} value={c}>{CANAL_LABEL[c]}</option>)}
+          <option value="true">Só ativos</option>
+          <option value="false">Só inativos</option>
+          <option value="todos">Todos</option>
         </select>
-      )}
 
-      <select
-        className="input"
-        value={filtros.ativo}
-        onChange={e => aplicar({ ativo: e.target.value })}
-        aria-label="Filtrar por estado"
-        style={ALTURA_TOQUE}
-      >
-        <option value="true">Só ativos</option>
-        <option value="false">Só inativos</option>
-        <option value="todos">Todos</option>
-      </select>
-
-      <a
-        href={exportHref}
-        className="btn btn-secondary"
-        style={{ ...ALTURA_TOQUE, display: 'inline-flex', alignItems: 'center' }}
-      >
-        ⬇️ Exportar Excel
-      </a>
+        <a
+          href={exportHref}
+          className="btn btn-secondary"
+          style={{ ...ALTURA_TOQUE, display: 'inline-flex', alignItems: 'center' }}
+        >
+          ⬇️ Exportar Excel
+        </a>
+      </div>
     </div>
   )
 }

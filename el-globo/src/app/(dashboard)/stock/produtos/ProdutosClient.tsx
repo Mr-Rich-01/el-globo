@@ -477,7 +477,7 @@ export function ProdutosClient({ role, canais, filtros }: Props) {
 
   return (
     <div style={{ padding: '24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '24px', fontWeight: 800 }}>📦 Produtos & Stock por Canal</h1>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px', marginTop: '4px' }}>
