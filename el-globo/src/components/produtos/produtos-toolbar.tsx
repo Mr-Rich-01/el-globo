@@ -140,9 +140,9 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
         )}
       </div>
 
-      {/* Filtros + exportação agrupados e alinhados à direita (o espaço
-          livre fica entre a pesquisa e este grupo, não dentro da pesquisa). */}
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginLeft: 'auto' }}>
+      {/* Filtros + exportação logo a seguir à pesquisa (agrupados). O espaço
+          livre fica no fim da barra, não num vão entre a pesquisa e o grupo. */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
         {canais.length > 1 && (
           <select
             className="input"
