@@ -113,10 +113,9 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
   const exportHref = `/api/produtos/export${exportQs ? `?${exportQs}` : ''}`
 
   return (
-    <div style={{ display: 'flex', gap: '8px 12px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '16px' }}>
-      {/* Pesquisa: cresce até um limite para não se esticar por toda a
-          largura no desktop; abaixo disso ocupa a linha inteira. */}
-      <div style={{ position: 'relative', flex: '1 1 280px', maxWidth: '440px', minWidth: '200px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+      {/* Linha 1: pesquisa a toda a largura. */}
+      <div style={{ position: 'relative', width: '100%' }}>
         <input
           ref={inputRef}
           className="input"
@@ -140,8 +139,7 @@ export function ProdutosToolbar({ canais, filtros }: Props) {
         )}
       </div>
 
-      {/* Filtros + exportação logo a seguir à pesquisa (agrupados). O espaço
-          livre fica no fim da barra, não num vão entre a pesquisa e o grupo. */}
+      {/* Linha 2: filtros de canal/estado + exportação, por baixo da pesquisa. */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
         {canais.length > 1 && (
           <select
