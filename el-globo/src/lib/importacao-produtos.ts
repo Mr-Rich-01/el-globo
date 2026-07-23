@@ -185,8 +185,10 @@ export interface ContextoValidacao {
   produtosPorSku: Map<string, { id: string; codigoBarras: string | null }>
   // SKU dono de cada código de barras já registado na BD
   skuPorCodigoBarras: Map<string, string>
-  // Canais com linha StockCanal já existente, por produtoId ("id:CANAL")
-  stockCanaisExistentes: Set<string>
+  // Saldo actual das linhas StockCanal já existentes, por "produtoId:CANAL".
+  // A presença da chave marca o par como já existente; o valor é o
+  // stockAtual (string decimal) usado no aviso STOCK_INICIAL_IGNORADO.
+  stockCanaisExistentes: Map<string, string>
 }
 
 interface LinhaCrua {
@@ -385,10 +387,17 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
       continue
     }
 
-    // Stock inicial só se aplica a linhas StockCanal novas
-    const canalJaExiste = existente != null && ctx.stockCanaisExistentes.has(`${existente.id}:${linha.canal}`)
-    if (canalJaExiste && Number(linha.stockInicial) > 0) {
-      avisos.push('stock_inicial ignorado — o produto já tem stock neste canal; ajuste em Stock → Entradas')
+    // stock_inicial é um campo de ABERTURA: só faz sentido no instante em
+    // que o par (SKU, canal) passa a existir. Se o par já existe, avisa e
+    // NÃO o aplica. A decisão definitiva INSERT/UPDATE é tomada dentro da
+    // transação (o dry-run pode ficar obsoleto) — por isso o plano leva o
+    // valor CRU e a transação é que decide se o usa.
+    const chaveCanal = existente ? `${existente.id}:${linha.canal}` : null
+    const saldoActual = chaveCanal ? ctx.stockCanaisExistentes.get(chaveCanal) : undefined
+    if (saldoActual !== undefined && Number(linha.stockInicial) > 0) {
+      avisos.push(
+        `STOCK_INICIAL_IGNORADO — linha ${crua.linha}: stock_inicial=${linha.stockInicial} ignorado, ${linha.sku}/${linha.canal} já existe (saldo actual ${saldoActual}). Para corrigir stock usa Ajustes de Inventário.`
+      )
     }
 
     if (linha.codigoBarras) codigosBarrasNoFicheiro.set(linha.codigoBarras, linha.sku)
@@ -397,7 +406,7 @@ export function validarLinhas(cruas: LinhaCrua[], ctx: ContextoValidacao): Plano
       canal: linha.canal,
       precoVenda: linha.precoVenda,
       precoCusto: linha.precoCusto,
-      stockInicial: canalJaExiste ? '0' : linha.stockInicial,
+      stockInicial: linha.stockInicial,
       stockMinimo: linha.stockMinimo,
       linha: crua.linha,
     }

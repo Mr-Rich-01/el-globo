@@ -90,7 +90,7 @@ async function carregarContexto(linhasCruas: { valores: Record<string, string> }
     prisma.categoria.findMany({ where: { ativo: true }, select: { id: true, nome: true, parentCategoryId: true } }),
     prisma.produto.findMany({
       where: { sku: { in: skus } },
-      select: { id: true, sku: true, codigoBarras: true, stockCanais: { select: { canal: true } } },
+      select: { id: true, sku: true, codigoBarras: true, stockCanais: { select: { canal: true, stockAtual: true } } },
     }),
     prisma.produto.findMany({
       where: { codigoBarras: { in: codigosBarras } },
@@ -102,8 +102,8 @@ async function carregarContexto(linhasCruas: { valores: Record<string, string> }
   const skuPorCodigoBarras = new Map(
     donosCodigoBarras.filter(p => p.sku).map(p => [p.codigoBarras!, p.sku!])
   )
-  const stockCanaisExistentes = new Set(
-    produtos.flatMap(p => p.stockCanais.map(s => `${p.id}:${s.canal}`))
+  const stockCanaisExistentes = new Map<string, string>(
+    produtos.flatMap(p => p.stockCanais.map(s => [`${p.id}:${s.canal}`, String(s.stockAtual)] as [string, string]))
   )
 
   return { categorias, produtosPorSku, skuPorCodigoBarras, stockCanaisExistentes }
@@ -158,6 +158,14 @@ async function executarImportacao(plano: PlanoImportacao, userId: string) {
           criados++
           continue
         }
+
+        // Lock pessimista do produto: a decisão INSERT vs UPDATE por
+        // (produto, canal) é tomada AQUI, dentro da transação, não pela
+        // classificação do dry-run — que pode ter ficado obsoleta se outra
+        // linha do mesmo ficheiro (ou outro utilizador) criou o par
+        // entretanto. O FOR UPDATE serializa importações concorrentes do
+        // mesmo produto até ao commit.
+        await tx.$queryRaw`SELECT id FROM produtos WHERE id = ${p.produtoExistenteId} FOR UPDATE`
 
         // SKU existente: atualiza o catálogo; campos opcionais em branco
         // no ficheiro mantêm o valor atual (não apagam dados).

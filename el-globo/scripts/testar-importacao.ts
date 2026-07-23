@@ -65,7 +65,7 @@ async function main() {
     ],
     produtosPorSku: new Map([['T-EXIST', { id: 'p9', codigoBarras: null }]]),
     skuPorCodigoBarras: new Map(),
-    stockCanaisExistentes: new Set(['p9:RESTAURANTE']),
+    stockCanaisExistentes: new Map([['p9:RESTAURANTE', '30']]),
   }
   // colunas: nome, sku, cb, grupo, subcategoria, descricao, unidade, canal, pv, pc, si, sm, ing, ativo
   const plano = await validar([
@@ -88,7 +88,13 @@ async function main() {
   assert(r3.acao === 'CRIAR' && plano.produtos.find(p => p.sku === 'T-002')!.categoriaId === 'g3', 'sem subcategoria → genérico do grupo')
   assert(r4.acao === 'ERRO' && r4.erros.length >= 4, `linha má acumula erros (${r4.erros.length})`)
   assert(r5.acao === 'ATUALIZAR' && r5.avisos.length === 1, 'SKU existente → ATUALIZAR com aviso de stock_inicial ignorado')
-  assert(plano.produtos.find(p => p.sku === 'T-EXIST')!.stocks[0].stockInicial === '0', 'stock_inicial zerado para canal existente')
+  assert(
+    r5.avisos[0].startsWith('STOCK_INICIAL_IGNORADO') && r5.avisos[0].includes('saldo actual 30'),
+    `aviso STOCK_INICIAL_IGNORADO com saldo actual (${r5.avisos[0]})`
+  )
+  // O plano leva o valor CRU do stock_inicial; a decisão de o aplicar (ou
+  // ignorar) é da transação, que re-verifica a existência do par.
+  assert(plano.produtos.find(p => p.sku === 'T-EXIST')!.stocks[0].stockInicial === '50', 'stock_inicial cru preservado no plano (transação decide)')
   assert(r6.acao === 'ERRO' && r6.erros.length > 0, 'campos do produto diferentes no mesmo SKU → erro')
   assert(r7.acao === 'ERRO' && r7.erros[0].includes('não pertence ao grupo'), 'sub de outro grupo → erro')
   assert(r8.acao === 'ERRO' && r8.erros[0].includes('é uma subcategoria de'), 'sub na coluna grupo → erro pedagógico')
@@ -112,7 +118,7 @@ async function main() {
     ],
     produtosPorSku: new Map(),
     skuPorCodigoBarras: new Map(),
-    stockCanaisExistentes: new Set(),
+    stockCanaisExistentes: new Map(),
   }
   const colisao = await validar([
     ['Grupo Normalizado', 'C-001', '', 'cha', '', '', 'UNIDADE', 'RESTAURANTE', '10', '', '0', '', '', ''],
