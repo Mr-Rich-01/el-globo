@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSession, canaisPermitidos, podeAcederCanal } from '@/lib/auth'
 import { disponibilidadeProduto } from '@/lib/disponibilidade'
+import { construirWhereProdutos, resolverCanalFiltro } from '@/lib/produtos/filtros'
 import { z } from 'zod'
 import { CanalVenda } from '@prisma/client'
 
@@ -104,13 +105,22 @@ export async function GET(request: NextRequest) {
   }
 
   // Vista de gestão: o catálogo é partilhado, mas cada gestor só vê as
-  // linhas de preço/stock dos seus canais
+  // linhas de preço/stock dos seus canais. Filtros (q/canal/ativo) vêm da
+  // URL e usam o MESMO where da exportação. O canal chega como
+  // `canalFiltro` — `canal` está reservado à vista de venda achatada acima.
   const permitidos = canaisPermitidos(session)
+  const filtros = {
+    q: searchParams.get('q'),
+    canal: searchParams.get('canalFiltro'),
+    ativo: searchParams.get('ativo') ?? 'true', // default histórico: só ativos
+  }
+  const canalAlvo = resolverCanalFiltro(filtros.canal, permitidos)
+  const canaisAlvo = canalAlvo ? [canalAlvo] : permitidos
   const produtos = await prisma.produto.findMany({
-    where: { ativo: true },
+    where: construirWhereProdutos(filtros, permitidos),
     include: {
       categoria: { include: { parent: true } },
-      stockCanais: { where: { canal: { in: permitidos } } },
+      stockCanais: { where: { canal: { in: canaisAlvo } } },
       parent: { select: { id: true, nome: true, sku: true } },
       filhos: { select: { id: true, nome: true, sku: true, fatorConversao: true } },
     },
